@@ -1,0 +1,14 @@
+# 运行时依赖
+node_modules/
+
+# 运行时数据（每人机器上不同，不进仓库）
+settings.json
+history.json
+
+# 日志与临时文件
+*.log
+_sshtest.js
+
+# 系统垃圾
+.DS_Store
+Thumbs.db

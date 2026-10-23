@@ -1,0 +1,726 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:">
+<title>ShrimpTerm</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f7f7f5;
+    --surface2: #ffffff;
+    --surface3: #eeeeea;
+    --line: #e7e7e2;
+    --line2: #dcdcd6;
+    --text: #1f1f1e;
+    --dim: #6b6b66;
+    --dim2: #9a9a94;
+    --accent: #2f7ae5;
+    --accent-soft: #e8f0fd;
+    --ok: #2f9e63;
+    --warn: #d93025;
+    --agent: #7c4dcc;
+    --agent-soft: #f1ecfb;
+    --radius: 8px;
+  }
+  /* dark palette: same variable names, different values */
+  [data-theme="dark"] {
+    --bg: #101216;
+    --surface: #15181e;
+    --surface2: #1b1f27;
+    --surface3: #222732;
+    --line: #242932;
+    --line2: #2e3440;
+    --text: #e3e7ee;
+    --dim: #8a93a2;
+    --dim2: #5f6875;
+    --accent: #5aa9ff;
+    --accent-soft: #1d2b3f;
+    --ok: #4ac08a;
+    --warn: #e5645f;
+    --agent: #b98cf0;
+    --agent-soft: #2a2338;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text); overflow: hidden;
+    font: 13px/1.55 -apple-system, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #d8d8d2; border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: #c4c4bd; background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  button { font: inherit; color: inherit; }
+
+  #app { display: flex; flex-direction: column; height: 100%; }
+
+  /* ===== titlebar ===== */
+  #titlebar {
+    height: 38px; flex: 0 0 38px; display: flex; align-items: center;
+    background: var(--bg); border-bottom: 1px solid var(--line);
+    padding-left: 12px; -webkit-app-region: drag; user-select: none;
+  }
+  #brand { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; letter-spacing: .2px; }
+  #brand img { width: 18px; height: 18px; display: block; }
+  #titlebar .spacer { flex: 1; }
+  #titlebar .tbbtn {
+    -webkit-app-region: no-drag; border: 0; background: transparent; color: var(--dim);
+    font: inherit; font-size: 12px; height: 100%; padding: 0 13px; cursor: pointer;
+    display: flex; align-items: center; gap: 2px;
+  }
+  #titlebar .tbbtn:hover { background: var(--surface3); color: var(--text); }
+  #winctl { display: flex; align-items: stretch; height: 100%; -webkit-app-region: no-drag; }
+  #winctl button { width: 46px; border: 0; background: transparent; color: var(--dim); cursor: pointer; font-size: 13px; }
+  #winctl button:hover { background: var(--surface3); color: var(--text); }
+  #winctl button.close:hover { background: #d93025; color: #fff; }
+
+  #body { flex: 1; display: flex; min-height: 0; }
+
+  /* ===== rail ===== */
+  #rail {
+    width: 46px; flex: 0 0 46px; background: var(--surface); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 4px;
+  }
+  .railbtn {
+    width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    font-size: 15px; color: var(--dim); cursor: pointer; position: relative; transition: background .12s, color .12s;
+  }
+  .railbtn:hover { background: var(--surface3); color: var(--text); }
+  .railbtn.active { background: var(--surface3); color: var(--text); }
+  .railbtn.active::before {
+    content: ''; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 2px;
+    background: var(--accent); border-radius: 2px;
+  }
+  #rail .gap { flex: 1; }
+  .railtxt {
+    width: 40px; display: flex; flex-direction: column; align-items: center; gap: 1px;
+    padding: 5px 0; border-radius: 8px; cursor: pointer; color: var(--dim); user-select: none;
+  }
+  .railtxt:hover { background: var(--surface3); color: var(--text); }
+  .railtxt span:first-child { font-size: 15px; line-height: 1; }
+  .railtxt span:last-child { font-size: 9px; line-height: 1.4; }
+
+  /* ===== side panel ===== */
+  #panelHead {
+    height: 30px; flex: 0 0 30px; display: flex; align-items: center; gap: 6px;
+    padding: 0 8px 0 13px; border-bottom: 1px solid var(--line);
+    font-size: 11px; color: var(--dim2); letter-spacing: .6px; text-transform: uppercase;
+  }
+  #panelHead button, #subHead button {
+    margin-left: auto; border: 0; background: transparent; color: var(--dim2);
+    width: 22px; height: 22px; border-radius: 5px; cursor: pointer; font-size: 13px; line-height: 1;
+  }
+  #panelHead button:hover, #subHead button:hover { background: var(--surface3); color: var(--text); }
+  #panel.hidden { display: none; }
+  #panel { width: 256px; flex: 0 0 256px; background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .sect {
+    padding: 12px 12px 6px; font-size: 10.5px; color: var(--dim2); letter-spacing: .7px;
+    text-transform: uppercase; display: flex; align-items: center; gap: 4px; flex: 0 0 auto;
+  }
+  .sect .spacer { flex: 1; }
+  .sect button {
+    border: 0; background: transparent; color: var(--dim2); cursor: pointer;
+    width: 22px; height: 20px; border-radius: 5px; font-size: 13px; line-height: 1;
+  }
+  .sect button:hover { background: var(--surface3); color: var(--text); }
+  .sect .tiny { font-size: 10px; letter-spacing: 0; text-transform: none; color: #8a7a4d; background: #fdf6e3; border: 1px solid #f0e2c0; padding: 0 5px; border-radius: 4px; }
+
+  .pane { flex: 1; display: none; flex-direction: column; min-height: 0; }
+  .pane.active { display: flex; }
+
+  #hostList { padding: 0 6px 6px; overflow-y: auto; flex: 1; }
+  .group { margin-bottom: 2px; }
+  .ghead {
+    display: flex; align-items: center; gap: 6px; padding: 5px 7px; border-radius: 6px;
+    cursor: pointer; color: var(--dim); font-size: 11.5px; user-select: none;
+  }
+  .ghead:hover { background: var(--surface3); }
+  .ghead .caret { font-size: 9px; color: var(--dim2); width: 10px; transition: transform .12s; }
+  .group.collapsed .caret { transform: rotate(-90deg); }
+  .ghead .gname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ghead .cnt { color: var(--dim2); font-size: 10.5px; }
+  .gbody { padding-left: 6px; }
+  .group.collapsed .gbody { display: none; }
+
+  .host {
+    padding: 6px 8px; cursor: pointer; border-radius: 6px; display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; border: 1px solid transparent;
+  }
+  .host:hover { background: var(--surface3); }
+  .host.disabled { opacity: .38; cursor: default; }
+  .host.disabled:hover { background: transparent; }
+  .host .dot { width: 6px; height: 6px; border-radius: 50%; background: #c9c9c3; flex: 0 0 6px; }
+  .host.on .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(47,158,99,.14); }
+  .host.fail .dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(217,48,37,.14); }
+  .host.fail .name { color: var(--warn); }
+  .host.busy .dot { background: #e0b872; animation: hpulse 1s ease-in-out infinite; }
+  .host.busy .name { color: var(--dim); }
+  @keyframes hpulse { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+  .host .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .host .edit { opacity: 0; color: var(--dim2); font-size: 12px; }
+  .host:hover .edit { opacity: 1; }
+  .host .edit:hover { color: var(--accent); }
+  .host .kind { font-size: 10px; color: var(--dim2); }
+
+  .newGroupRow { padding: 4px 7px; display: none; }
+  .newGroupRow.on { display: block; }
+  .newGroupRow input {
+    width: 100%; border: 1px solid var(--accent); border-radius: 6px; padding: 5px 8px;
+    font: inherit; font-size: 12px; outline: none; background: var(--surface2); color: var(--text);
+  }
+
+  #sftpPath { display: flex; align-items: center; gap: 3px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+  #sftpPathText { flex: 1; color: var(--dim); font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .iconbtn { border: 0; background: transparent; color: var(--dim2); cursor: pointer; width: 22px; height: 22px; border-radius: 5px; font-size: 12px; flex: 0 0 22px; }
+  .iconbtn:hover { background: var(--surface3); color: var(--text); }
+  #sftpList { flex: 1; overflow-y: auto; padding: 4px 6px; min-height: 0; }
+  .frow { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 6px; }
+  .frow:hover { background: var(--surface3); }
+  .frow.sel { background: var(--accent-soft); }
+  .frow .ico { font-size: 11px; color: var(--dim2); flex: 0 0 13px; text-align: center; }
+  .frow.dir .ico { color: var(--accent); }
+  .frow .meta { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .frow .nm { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frow .sub2 { font-size: 10px; color: var(--dim2); }
+  #sftpBar { display: flex; gap: 5px; padding: 7px 8px; border-top: 1px solid var(--line); flex: 0 0 auto; }
+  #sftpBar .btn { border: 1px solid var(--line2); background: var(--surface2); color: var(--text); padding: 3px 8px; border-radius: 6px; cursor: pointer; font-size: 11px; }
+  #sftpBar .btn:hover { background: var(--surface3); }
+
+  /* ===== center ===== */
+  #center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #tabRow {
+    height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 3px; padding: 0 8px;
+    background: var(--surface); border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none;
+  }
+  #tabRow::-webkit-scrollbar { display: none; }
+  .tab {
+    display: flex; align-items: center; gap: 7px; padding: 5px 9px 5px 10px; border-radius: 6px;
+    font-size: 12px; color: var(--dim); cursor: pointer; white-space: nowrap; border: 1px solid transparent;
+  }
+  .tab:hover { background: var(--surface3); color: var(--text); }
+  .tab.active { background: var(--surface2); color: var(--text); border-color: var(--line2); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .tab .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); flex: 0 0 5px; }
+  .tab .x { color: var(--dim2); padding: 0 2px; border-radius: 4px; font-size: 13px; line-height: 1; }
+  .tab .x:hover { color: var(--warn); background: #fdecea; }
+  .tab[draggable="true"] { cursor: grab; }
+  .tab.dragging { opacity: .35; }
+  .tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+  .tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+  .tab.agentTab { color: var(--agent); }
+  .tab.agentTab.active { background: var(--agent-soft); border-color: #e2d6f7; color: var(--agent); }
+
+  #toolbar {
+    height: 34px; flex: 0 0 34px; display: flex; align-items: center; gap: 12px; padding: 0 12px;
+    background: var(--bg); border-bottom: 1px solid var(--line); font-size: 12px; color: var(--dim);
+  }
+  #toolbar label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text); }
+  #toolbar input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; cursor: pointer; }
+  .sep { width: 1px; height: 14px; background: var(--line); }
+  .chip { display: flex; align-items: center; gap: 2px; }
+  .chip button { border: 1px solid var(--line2); background: var(--surface2); color: var(--dim); width: 22px; height: 21px; border-radius: 5px; cursor: pointer; font-size: 11px; }
+  .chip button:hover { background: var(--surface3); color: var(--text); }
+  .chip .val { min-width: 26px; text-align: center; font-size: 11px; }
+  #searchWrap { display: flex; align-items: center; gap: 6px; background: var(--surface2); border: 1px solid var(--line2); border-radius: 6px; padding: 2px 8px; color: var(--dim2); }
+  #searchWrap input { border: 0; background: transparent; color: var(--text); outline: none; width: 130px; font: inherit; font-size: 11.5px; }
+  #toolbar .tb { border: 1px solid var(--line2); background: var(--surface2); color: var(--dim);
+    padding: 3px 10px; border-radius: 6px; font-size: 11.5px; cursor: pointer; }
+  #toolbar .tb:hover { background: var(--surface3); color: var(--text); }
+  #status { margin-left: auto; color: var(--dim2); font-size: 11px; }
+
+  #terms { flex: 1; position: relative; background: var(--surface); min-height: 0; }
+  .termwrap {
+    position: absolute; inset: 8px; display: none; overflow: hidden;
+    border: 1px solid var(--line2); border-radius: 9px; padding: 10px 4px 4px 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .termwrap.active { display: block; }
+  #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim2); font-size: 12.5px; }
+
+  /* ===== big agent page ===== */
+  #agentPage { flex: 1; display: none; flex-direction: column; min-height: 0; background: var(--bg); }
+  #agentPage.active { display: flex; }
+  #agentPage { flex-direction: row; }
+  #convList {
+    width: 176px; flex: 0 0 176px; background: var(--surface); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0; padding: 8px 6px;
+  }
+  #convNew {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    border: 1px dashed var(--line2); background: transparent; color: var(--dim);
+    padding: 7px; border-radius: 7px; font-size: 12px; cursor: pointer; margin-bottom: 6px; flex: 0 0 auto;
+  }
+  #convNew:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  #convItems { flex: 1; overflow-y: auto; min-height: 0; }
+  .conv {
+    display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 6px;
+    font-size: 12px; color: var(--dim); cursor: pointer; margin-bottom: 1px;
+  }
+  .conv:hover { background: var(--surface3); color: var(--text); }
+  .conv.active { background: var(--agent-soft); color: var(--agent); font-weight: 500; }
+  .conv .ct { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv .del { opacity: 0; color: var(--dim2); font-size: 12px; padding: 0 2px; border-radius: 4px; }
+  .conv:hover .del { opacity: 1; }
+  .conv .del:hover { color: var(--warn); background: #fdecea; }
+  #agentMain { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  #apHead { height: 42px; flex: 0 0 42px; display: flex; align-items: center; gap: 9px; padding: 0 22px; border-bottom: 1px solid var(--line); }
+  #apHead .star { color: var(--agent); font-size: 14px; }
+  #apHead .t { font-size: 13.5px; font-weight: 600; }
+  #apHead .sub { color: var(--dim2); font-size: 11.5px; }
+  #apHead .picked { margin-left: auto; color: var(--dim2); font-size: 11.5px; }
+  #apScroll { flex: 1; overflow-y: auto; min-height: 0; }
+  #apLog { max-width: 740px; margin: 0 auto; padding: 26px 28px 8px; display: flex; flex-direction: column; gap: 14px; }
+  .amsg { font-size: 13.5px; line-height: 1.72; white-space: pre-wrap; word-break: break-word; }
+  .amsg.intro { color: var(--dim); font-size: 13px; }
+  .amsg.intro b { color: var(--text); font-weight: 500; }
+  .amsg.me { align-self: flex-end; background: var(--accent-soft); padding: 9px 14px; border-radius: 12px 12px 3px 12px; max-width: 82%; }
+  .amsg.bot { color: var(--text); }
+  .amsg.act { color: #4a4a46; font-family: "Cascadia Mono", Consolas, monospace; font-size: 11.5px; background: var(--surface); border: 1px solid var(--line); border-left: 2px solid var(--agent); padding: 9px 12px; border-radius: 0 7px 7px 0; }
+  .amsg.err { color: var(--warn); }
+  .amsg.thinking { color: var(--dim2); }
+
+  /* ---- markdown inside agent bubbles ---- */
+  .amsg, .msg { white-space: normal; }
+  .amsg.me, .msg.me, .amsg.act, .msg.act, .amsg.intro, .msg.intro { white-space: pre-wrap; }
+  .amsg p, .msg p { margin: 0 0 8px; }
+  .amsg p:last-child, .msg p:last-child { margin-bottom: 0; }
+  .amsg h1, .amsg h2, .amsg h3, .amsg h4, .msg h1, .msg h2, .msg h3, .msg h4 { margin: 14px 0 6px; line-height: 1.35; font-weight: 600; }
+  .amsg h1, .msg h1 { font-size: 15.5px; }
+  .amsg h2, .msg h2 { font-size: 14.5px; }
+  .amsg h3, .msg h3 { font-size: 13.5px; }
+  .amsg h4, .msg h4 { font-size: 13px; }
+  .amsg ul, .amsg ol, .msg ul, .msg ol { margin: 6px 0; padding-left: 20px; }
+  .amsg li, .msg li { margin: 3px 0; }
+
+  .tblwrap { overflow-x: auto; margin: 9px 0; max-width: 100%; }
+  .tblwrap::-webkit-scrollbar { height: 7px; }
+  .amsg table, .msg table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+  .amsg th, .amsg td, .msg th, .msg td {
+    border: 1px solid var(--line2); padding: 5px 10px; vertical-align: top; line-height: 1.5;
+  }
+  .amsg th, .msg th { background: var(--surface3); font-weight: 600; white-space: nowrap; }
+  .amsg tbody tr:nth-child(even), .msg tbody tr:nth-child(even) { background: var(--surface); }
+
+  .amsg code, .msg code {
+    background: var(--surface3); padding: 1px 5px; border-radius: 4px;
+    font-family: "Cascadia Mono", Consolas, monospace; font-size: 11.5px;
+  }
+  .amsg pre.code, .msg pre.code {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; margin: 9px 0; overflow-x: auto;
+  }
+  .amsg pre.code code, .msg pre.code code { background: none; padding: 0; font-size: 11.5px; line-height: 1.6; }
+  .amsg blockquote, .msg blockquote {
+    margin: 8px 0; padding: 4px 0 4px 12px; border-left: 2px solid var(--line2); color: var(--dim);
+  }
+  .amsg hr, .msg hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
+  .amsg a, .msg a { color: var(--accent); text-decoration: none; }
+  .amsg a:hover, .msg a:hover { text-decoration: underline; }
+
+  #apComposer { flex: 0 0 auto; padding: 8px 22px 16px; }
+  #apBox {
+    max-width: 740px; margin: 0 auto; display: flex; align-items: flex-end; gap: 10px;
+    background: var(--surface2); border: 1px solid var(--line2); border-radius: 14px; padding: 10px 10px 10px 14px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03);
+  }
+  #apBox:focus-within { border-color: var(--agent); box-shadow: 0 0 0 3px var(--agent-soft); }
+  #apInput { flex: 1; resize: none; background: transparent; border: 0; outline: none; color: var(--text); font: inherit; font-size: 13.5px; min-height: 24px; max-height: 150px; }
+  #apInput::placeholder { color: var(--dim2); }
+  #apSend { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; border: 0; background: var(--agent); color: #fff; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  #apSend:disabled { opacity: .3; cursor: default; }
+  #apHint { max-width: 740px; margin: 7px auto 0; color: var(--dim2); font-size: 11px; display: flex; gap: 14px; }
+  #apFoot { max-width: 740px; margin: 9px auto 0; display: flex; gap: 8px; justify-content: center; }
+  .pill {
+    border: 1px solid var(--line2); background: transparent; color: var(--dim2);
+    padding: 4px 12px; border-radius: 14px; font-size: 11.5px; cursor: pointer; transition: all .12s;
+  }
+  .pill:hover { border-color: var(--agent); color: var(--agent); background: var(--agent-soft); }
+  #convHead {
+    display: flex; align-items: center; height: 24px; padding: 0 4px 0 6px; margin-bottom: 4px;
+    font-size: 10.5px; color: var(--dim2); letter-spacing: .6px; text-transform: uppercase;
+  }
+  #convHead button { margin-left: auto; border: 0; background: transparent; color: var(--dim2); width: 20px; height: 20px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+  #convHead button:hover { background: var(--surface3); color: var(--text); }
+  #convList.hidden { display: none; }
+  #convShow { display: none; border: 0; background: transparent; color: var(--dim2); width: 22px; height: 22px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+  #convShow:hover { background: var(--surface3); color: var(--text); }
+  #convShow.on { display: block; }
+
+  /* ===== right: per-session sub agent ===== */
+  #right { width: 320px; flex: 0 0 320px; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  #right.hidden { display: none; }
+  #subHead { height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; }
+  #subHead .sub { font-weight: 400; color: var(--dim2); font-size: 11px; margin-left: auto; }
+  #subLog { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; min-height: 0; }
+  .msg { font-size: 12.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+  .msg.intro { color: var(--dim); font-size: 11.5px; }
+  .msg.me { align-self: flex-end; background: var(--accent-soft); padding: 7px 11px; border-radius: 10px 10px 2px 10px; max-width: 90%; }
+  .msg.bot { color: var(--text); }
+  .msg.act { color: #4a4a46; font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; background: var(--surface2); border: 1px solid var(--line); border-left: 2px solid var(--accent); padding: 7px 10px; border-radius: 0 6px 6px 0; }
+  .msg.err { color: var(--warn); }
+  .msg.thinking { color: var(--dim2); }
+  #subComposer { border-top: 1px solid var(--line); padding: 10px 12px 12px; flex: 0 0 auto; }
+  #subInput {
+    width: 100%; resize: none; background: var(--surface2); color: var(--text); border: 1px solid var(--line2);
+    border-radius: var(--radius); padding: 9px 11px; font: inherit; outline: none; min-height: 54px; max-height: 120px;
+  }
+  #subInput:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  #subRow { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  #subSend { margin-left: auto; background: var(--accent); color: #fff; border: 0; border-radius: var(--radius); padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  #subSend:disabled { opacity: .35; cursor: default; }
+
+  /* ===== settings ===== */
+  .setrow { display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: 12px; }
+  .setrow > span { width: 62px; flex: 0 0 62px; color: var(--dim); font-size: 11.5px; }
+  .setrow select, .setrow input[type=number] {
+    flex: 1; background: var(--surface2); border: 1px solid var(--line2); border-radius: 6px;
+    padding: 5px 8px; color: var(--text); font: inherit; font-size: 12px; outline: none;
+  }
+  .setrow input[type=color] { width: 34px; height: 26px; padding: 0; border: 1px solid var(--line2); border-radius: 6px; background: transparent; cursor: pointer; }
+  .seg { display: flex; background: var(--surface3); border-radius: 6px; padding: 2px; gap: 2px; }
+  .seg button { border: 0; background: transparent; color: var(--dim); padding: 3px 12px; border-radius: 5px; font-size: 11.5px; cursor: pointer; }
+  .seg button.active { background: var(--surface2); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .setcol { display: flex; flex-direction: column; gap: 4px; padding: 5px 14px; }
+  .setcol > span { color: var(--dim); font-size: 11px; }
+  .setcol input {
+    background: var(--surface2); border: 1px solid var(--line2); border-radius: 6px;
+    padding: 6px 9px; color: var(--text); font: inherit; font-size: 12px; outline: none;
+  }
+  .setcol input:focus { border-color: var(--accent); }
+  .setfoot { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+  .btn.primary { background: var(--accent); color: #fff; border: 0; padding: 6px 16px; border-radius: 7px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  #setMsg { color: var(--ok); font-size: 11.5px; }
+
+  /* ===== context menu ===== */
+  #ctxmenu {
+    position: fixed; display: none; z-index: 90; min-width: 148px;
+    background: var(--surface2); border: 1px solid var(--line2); border-radius: 9px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 4px;
+  }
+  #ctxmenu.on { display: block; }
+  .ctxitem { padding: 7px 12px; border-radius: 6px; font-size: 12.5px; color: var(--text); cursor: pointer; }
+  .ctxitem:hover { background: var(--surface3); }
+  .ctxitem.danger { color: var(--warn); }
+  .ctxitem.danger:hover { background: #fdecea; }
+  .ctxsep { height: 1px; background: var(--line); margin: 4px 6px; }
+
+  /* ===== dialogs (CRT-style) ===== */
+  .ovl { position: fixed; inset: 0; background: rgba(0,0,0,.42); display: none; align-items: center; justify-content: center; z-index: 70; }
+  .ovl.on { display: flex; }
+  .dlg { width: 470px; max-height: 82vh; background: var(--surface2); border: 1px solid var(--line2); border-radius: 12px; box-shadow: 0 24px 70px rgba(0,0,0,.35); display: flex; flex-direction: column; overflow: hidden; }
+  .dlg.wide { width: 620px; height: 460px; }
+  .dlghead { display: flex; align-items: center; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; flex: 0 0 auto; }
+  .dlghead .x { margin-left: auto; cursor: pointer; color: var(--dim2); font-size: 14px; padding: 0 4px; border-radius: 4px; }
+  .dlghead .x:hover { color: var(--text); background: var(--surface3); }
+  .dlgbody { flex: 1; display: flex; min-height: 0; }
+  .dlgbody.col { flex-direction: column; padding: 14px 16px; gap: 12px; overflow-y: auto; }
+  .dlgnav { width: 132px; flex: 0 0 132px; background: var(--surface); border-right: 1px solid var(--line); padding: 8px 6px; }
+  .ni { padding: 8px 10px; border-radius: 6px; font-size: 12.5px; color: var(--dim); cursor: pointer; margin-bottom: 2px; }
+  .ni:hover { background: var(--surface3); color: var(--text); }
+  .ni.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .dlgmain { flex: 1; overflow-y: auto; padding: 16px 18px; }
+  .tp { display: none; flex-direction: column; gap: 12px; }
+  .tp.active { display: flex; }
+  .dlgfoot { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--surface); flex: 0 0 auto; }
+  .dlgfoot .msg { margin-right: auto; font-size: 11.5px; color: var(--dim2); }
+  .dlgfoot button { border: 1px solid var(--line2); background: var(--surface2); padding: 6px 15px; border-radius: 7px; font-size: 12px; cursor: pointer; }
+  .dlgfoot button:hover { background: var(--surface3); }
+  .dlgfoot button.primary { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+
+  /* agent warning strip */
+  #apWarn {
+    display: none; align-items: center; gap: 10px; padding: 9px 22px;
+    background: #fff8e6; border-bottom: 1px solid #f0e2c0; color: #8a6d2f; font-size: 12px;
+  }
+  #apWarn.on { display: flex; }
+  #apWarn button {
+    margin-left: auto; border: 1px solid #e0c98a; background: #fff; color: #8a6d2f;
+    padding: 3px 11px; border-radius: 6px; font-size: 11.5px; cursor: pointer;
+  }
+
+  /* onboarding skip */
+  #obSkip {
+    width: 100%; background: transparent; border: 0; color: var(--dim);
+    font-size: 11.5px; cursor: pointer; padding: 8px 0 0; text-decoration: underline;
+  }
+  #obSkip:hover { color: var(--text); }
+
+  /* ===== onboarding ===== */
+  #onboard { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; z-index: 80; }
+  #onboard.on { display: flex; }
+  .ob-card { width: 420px; background: var(--surface2); border: 1px solid var(--line2); border-radius: 14px; padding: 26px 28px 22px; box-shadow: 0 24px 70px rgba(0,0,0,.16); }
+  .ob-card img { width: 52px; height: 52px; display: block; margin-bottom: 14px; }
+  .ob-card h2 { margin: 0 0 6px; font-size: 17px; }
+  .ob-card p { margin: 0 0 18px; color: var(--dim); font-size: 12.5px; line-height: 1.7; }
+  .ob-card label { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; font-size: 11.5px; color: var(--dim); }
+  .ob-card input {
+    background: var(--surface); border: 1px solid var(--line2); border-radius: 7px;
+    padding: 8px 10px; color: var(--text); font: inherit; font-size: 12.5px; outline: none;
+  }
+  .ob-card input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .ob-card button { width: 100%; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 9px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 6px; }
+  .ob-err { color: var(--warn); font-size: 11.5px; margin-top: 8px; min-height: 16px; }
+
+  /* ===== modal ===== */
+  #overlay { position: fixed; inset: 0; background: rgba(20,20,18,.28); display: none; align-items: center; justify-content: center; z-index: 50; backdrop-filter: blur(1.5px); }
+  #overlay.on { display: flex; }
+  #dialog { width: 470px; background: var(--surface2); border: 1px solid var(--line2); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.18); overflow: hidden; }
+  #dialog h3 { margin: 0; padding: 15px 18px; font-size: 13.5px; border-bottom: 1px solid var(--line); }
+  #dialog .body { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field > span { font-size: 11px; color: var(--dim); }
+  .field input[type=text], .field input[type=password], select {
+    background: var(--surface2); border: 1px solid var(--line2); border-radius: 7px; padding: 7px 10px;
+    color: var(--text); font: inherit; font-size: 12.5px; outline: none;
+  }
+  .field input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .row2 { display: flex; gap: 10px; }
+  .row2 > .field { flex: 1; }
+  .row2 > .field.narrow { flex: 0 0 90px; }
+  .radio { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+  .radio input { accent-color: var(--accent); }
+  #fErr { color: var(--warn); font-size: 11.5px; min-height: 15px; line-height: 1.5; }
+  #dialog .foot { display: flex; gap: 8px; justify-content: flex-end; padding: 13px 18px; border-top: 1px solid var(--line); background: var(--surface); }
+  #dialog .foot button { padding: 7px 16px; border-radius: 7px; cursor: pointer; font-size: 12.5px; border: 1px solid var(--line2); background: var(--surface2); }
+  #dialog .foot button:hover { background: var(--surface3); }
+  #dialog .foot button.primary { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+  #dialog .foot button.ghost { margin-right: auto; }
+  #dialog .foot button.danger { color: var(--warn); border-color: #f0c4c0; }
+  #dialog .foot button.danger:hover { background: #fdecea; }
+  #toolbar .tb.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div id="titlebar">
+      <div id="brand"><img src="assets/shrimp-256.png" alt=""><span>ShrimpTerm</span></div>
+      <span class="spacer"></span>
+      <div id="winctl">
+        <button id="wMin" title="最小化">&#8211;</button>
+        <button id="wMax" title="最大化">&#9633;</button>
+        <button id="wClose" class="close" title="关闭">&#10005;</button>
+      </div>
+    </div>
+
+    <div id="body">
+      <div id="rail">
+        <div class="railbtn active" data-panel="hosts" title="会话">&#9733;</div>
+        <div class="railbtn" data-panel="sftp" title="文件">&#9707;</div>
+        <div class="gap"></div>
+        <div class="railtxt" id="btnSettings" title="全局设置"><span>&#9881;</span><span>设置</span></div>
+      </div>
+
+      <aside id="panel">
+        <div id="panelHead"><span id="panelTitle">会话</span><button id="panelHide" title="隐藏左侧栏">&#171;</button></div>
+        <div class="pane active" id="pane-hosts">
+          <div class="sect">
+            <span>会话</span>
+            <span class="spacer"></span>
+            <button id="addGroup" title="新建文件夹">&#128193;</button>
+            <button id="addHost" title="新建连接">+</button>
+          </div>
+          <div class="newGroupRow" id="newGroupRow"><input id="newGroupInput" placeholder="文件夹名称，回车确认"></div>
+          <div id="hostList"></div>
+        </div>
+        <div class="pane" id="pane-sftp">
+          <div class="sect">文件 <span class="tiny">示例</span></div>
+          <div id="sftpPath">
+            <button class="iconbtn" id="sftpUp" title="上一级">&#8593;</button>
+            <span id="sftpPathText">/home/ubuntu</span>
+            <button class="iconbtn" id="sftpRefresh" title="刷新">&#8635;</button>
+          </div>
+          <div id="sftpList"></div>
+          <div id="sftpBar">
+            <button class="btn" id="sftpUpload">上传</button>
+            <button class="btn" id="sftpDownload">下载</button>
+            <button class="btn" id="sftpMkdir">新建</button>
+          </div>
+        </div>
+      </aside>
+
+      <main id="center">
+        <div id="tabRow"></div>
+
+        <div id="toolbar">
+          <label><input type="checkbox" id="mirror"> 镜像输入</label>
+          <span class="sep"></span>
+          <span class="chip"><button id="fontDown">A-</button><span class="val" id="fontVal">12.5</span><button id="fontUp">A+</button></span>
+          <span class="sep"></span>
+          <span id="searchWrap">&#9906;<input id="searchInput" placeholder="在终端中搜索"></span>
+          <button class="tb" id="btnSubToggle">本会话</button>
+          <button class="tb" id="btnSession">会话设置</button>
+          <span id="status"></span>
+        </div>
+
+        <div id="terms"><div id="empty">双击左侧会话开始</div></div>
+
+        <div id="agentPage">
+          <div id="convList">
+            <div id="convHead"><span>对话</span><button id="convHide" title="隐藏对话列表">&#171;</button></div>
+            <button id="convNew"><span>+</span> 新建对话</button>
+            <div id="convItems"></div>
+          </div>
+          <div id="agentMain">
+          <div id="apHead">
+            <button id="convShow" title="显示对话列表">&#187;</button>
+            <span class="star">&#10022;</span>
+            <span class="t">Agent</span>
+            <span class="sub" id="apSub"></span>
+            <span class="picked" id="apPicked"></span>
+            
+          </div>
+          <div id="apWarn">尚未配置 Agent API，agent 不可用。<button id="apWarnBtn">去配置</button></div>
+          <div id="apScroll"><div id="apLog"></div></div>
+          <div id="apComposer">
+            <div id="apBox">
+              <textarea id="apInput" rows="1" placeholder="让它做什么…比如：所有会话里磁盘超 80% 的机器清一下日志"></textarea>
+              <button id="apSend">&#8593;</button>
+            </div>
+            <div id="apHint"><span>能查看本机信息、操作软件、按需联网</span></div>
+            <div id="apFoot">
+              <button class="pill" id="apClear">清空当前对话</button>
+              <button class="pill" id="apApiBtn">Agent API 设置</button>
+            </div>
+          </div>
+          </div>
+        </div>
+      </main>
+
+      <aside id="right">
+        <div id="subHead">本会话 <span class="sub" id="subTarget">未连接</span><button id="subHist" title="本会话的历史记忆" style="margin-left:auto;width:auto;padding:0 7px;font-size:11px">记忆</button>
+        <button id="subHide" title="隐藏右侧栏">&#187;</button></div>
+        <div id="subLog"></div>
+        <div id="subComposer">
+          <textarea id="subInput" placeholder="只针对当前会话提问…"></textarea>
+          <div id="subRow"><span style="color:var(--dim2);font-size:11px">记忆独立</span><button id="subSend">发送</button></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <div id="dialog">
+      <h3>新建连接</h3>
+      <div class="body">
+        <div class="field"><span>名称</span><input type="text" id="fName" placeholder="A · 腾讯云"></div>
+        <div class="row2">
+          <div class="field"><span>地址</span><input type="text" id="fHost" placeholder="106.55.224.129"></div>
+          <div class="field narrow"><span>端口</span><input type="text" id="fPort" value="22"></div>
+        </div>
+        <div class="row2">
+          <div class="field"><span>用户</span><input type="text" id="fUser" value="ubuntu"></div>
+          <div class="field"><span>文件夹</span><select id="fGroup"></select></div>
+        </div>
+        <div class="field">
+          <span>认证方式</span>
+          <label class="radio"><input type="radio" name="auth" value="key" checked> 密钥文件</label>
+          <label class="radio"><input type="radio" name="auth" value="pwd"> 密码</label>
+        </div>
+        <div class="field" id="keyField"><span>密钥路径</span><input type="text" id="fKey"></div>
+        <div class="field" id="pwdField" style="display:none"><span>密码</span><input type="password" id="fPwd"></div>
+        <div id="fErr"></div>
+      </div>
+      <div class="foot">
+        <button class="ghost danger" id="btnDelete" style="display:none">删除连接</button>
+        <button class="ghost" id="btnClose">取消</button>
+        <button id="btnTest">测试连接</button>
+        <button class="primary" id="btnSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- global settings -->
+  <div id="gset" class="ovl">
+    <div class="dlg wide">
+      <div class="dlghead">全局设置<span class="x" data-close="gset">&#10005;</span></div>
+      <div class="dlgbody">
+        <div class="dlgnav">
+          <div class="ni active" data-tab="appear">外观</div>
+          <div class="ni" data-tab="term">终端默认</div>
+          <div class="ni" data-tab="api">Agent API</div>
+        </div>
+        <div class="dlgmain">
+          <div class="tp active" id="tp-appear">
+            <div class="setrow"><span>主题</span><div class="seg" id="gTheme"><button data-v="light">浅色</button><button data-v="dark">深色</button></div></div>
+            <div class="setrow"><span>主色</span><input type="color" id="gAccent"></div>
+          </div>
+          <div class="tp" id="tp-term">
+            <div class="setrow"><span>配色</span>
+              <select id="gTerm"><option value="dark">黑色（默认）</option><option value="light">浅色</option><option value="dracula">Dracula</option><option value="solarized">Solarized Dark</option></select>
+            </div>
+            <div class="setrow"><span>字号</span><input type="number" id="gFont" min="9" max="20" step="0.5"></div>
+            <div class="setrow"><span>字符编码</span>
+              <select id="gEnc"><option value="utf-8">UTF-8（默认）</option><option value="gbk">GBK / GB18030</option><option value="big5">Big5</option><option value="latin1">Latin-1</option></select>
+            </div>
+          </div>
+          <div class="tp" id="tp-api">
+            <div class="setcol"><span>Base URL</span><input type="text" id="gBase" placeholder="https://api.deepseek.com/v1"></div>
+            <div class="setcol"><span>API Key</span><input type="password" id="gKey" placeholder="sk-..."></div>
+            <div class="setcol"><span>模型</span><input type="text" id="gModel" placeholder="deepseek-flash"></div>
+          </div>
+        </div>
+      </div>
+      <div class="dlgfoot">
+        <span class="msg" id="gMsg"></span>
+        <button id="gTest">测试</button>
+        <button data-close="gset">取消</button>
+        <button class="primary" id="gSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- host context menu -->
+  <div id="ctxmenu">
+    <div class="ctxitem" data-a="conn">更改连接</div>
+    <div class="ctxitem" data-a="settings">会话设置</div>
+    <div class="ctxsep"></div>
+    <div class="ctxitem" data-a="clone">克隆会话</div>
+    <div class="ctxitem danger" data-a="delete">删除会话</div>
+  </div>
+
+  <!-- session memory picker -->
+  <div id="memsel" class="ovl">
+    <div class="dlg">
+      <div class="dlghead">本会话的历史记忆<span class="x" data-close="memsel">&#10005;</span></div>
+      <div class="dlgbody col" id="memList"></div>
+      <div class="dlgfoot"><span class="msg" id="memMsg"></span><button data-close="memsel">关闭</button></div>
+    </div>
+  </div>
+
+  <!-- session settings -->
+  <div id="sset" class="ovl">
+    <div class="dlg">
+      <div class="dlghead">会话设置 · <span id="ssName"></span><span class="x" data-close="sset">&#10005;</span></div>
+      <div class="dlgbody col">
+        <div class="setrow"><span>字号</span><select id="ssFont"><option value="">跟随全局</option></select></div>
+        <div class="setrow"><span>配色</span><select id="ssTerm"><option value="">跟随全局</option><option value="dark">黑色</option><option value="light">浅色</option><option value="dracula">Dracula</option><option value="solarized">Solarized Dark</option></select></div>
+        <div class="setrow"><span>字符编码</span><select id="ssEnc"><option value="">跟随全局</option><option value="utf-8">UTF-8</option><option value="gbk">GBK / GB18030</option><option value="big5">Big5</option><option value="latin1">Latin-1</option></select></div>
+        <div style="color:var(--dim2);font-size:11px;line-height:1.7">字号修改立即生效；编码修改需重新连接才会完全生效。</div>
+      </div>
+      <div class="dlgfoot"><span class="msg" id="ssMsg"></span><button data-close="sset">关闭</button></div>
+    </div>
+  </div>
+
+  <div id="onboard">
+    <div class="ob-card">
+      <img src="assets/shrimp-256.png" alt="">
+      <h2>欢迎使用 ShrimpTerm</h2>
+      <p>先配置你要用的 agent API（OpenAI 兼容）。填好就能开工，以后可以在「设置」里改。</p>
+      <label>Base URL<input id="obBase" value="https://api.deepseek.com/v1"></label>
+      <label>API Key<input id="obKey" type="password" placeholder="sk-..."></label>
+      <label>模型<input id="obModel" value="deepseek-flash"></label>
+      <button id="obGo">测试连接并进入</button>
+      <div class="ob-err" id="obErr"></div>
+      <button id="obSkip">稍后设置，先用终端</button>
+      <div style="color:var(--dim2);font-size:11px;text-align:center;margin-top:4px">会真实调一次接口验证，通过了才能进入</div>
+    </div>
+  </div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="vendor/addon-search.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
