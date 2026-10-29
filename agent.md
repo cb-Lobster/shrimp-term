@@ -1,0 +1,290 @@
+# ShrimpTerm · 方案说明（agent.md）
+
+> **本文件是本项目唯一的执行依据。** 后续所有代码、文档、发布都以本文为准；改动先改本文，记入 §14 变更记录。
+> 🔸 已定 ｜ ❓ 待拍板 ｜ 📌 现状（代码里已存在） ｜ 🎯 目标（尚未实现）
+>
+> 版本 **v1.0** ｜ 更新：2026-10-29 ｜ 详细阶段计划见 `docs/完善路线.md`
+
+---
+
+## 0. 目录标准
+
+```
+D:\ShrimpTerm
+├─ agent.md                 ← 本文件（唯一依据）
+├─ main.js                  ← 主进程：SSH 池、agent 循环、工具、读写
+├─ renderer\
+│  ├─ app.js                ← 界面逻辑：终端、标签、markdown、对话、弹窗
+│  ├─ index.html            ← 结构与样式（浅/深两套配色）
+│  └─ vendor\               ← xterm 及 addon（不参与构建）
+├─ preload.js               ← 安全桥：暴露 22 个 IPC 通道
+├─ assets\                  ← 图标
+├─ hosts.example.json       ← 连接配置示例（真实 hosts.json 不入库）
+├─ deploy.ps1               ← 部署：同步 → 校验 IPC 对齐 → 重启
+├─ docs\
+│  ├─ 完善路线.md            ← 阶段计划与体检
+│  └─ 技术调研.md            🎯 待写：Netcatty / Astral / Termius 对比
+└─ hosts.json               ← 本地运行数据（.gitignore，不属于仓库）
+```
+
+---
+
+## 1. 定义与边界
+
+> **ShrimpTerm 是一个带 AI 助手的 SSH 客户端：多标签终端 + 每个连接独立的会话助手 + 一个掌控应用的全局助手。所有命令都打在你看得见的终端里。**
+
+### 三条设计原则（📌 已在代码里成立，不得破坏）
+
+| 原则 | 现状实现 | 为什么重要 |
+|---|---|---|
+| **看得见** | 子 agent 唯一的执行方式是 `run_in_terminals(command, note)`：往你眼前那个终端里打字，输出你自己看 | agent 不可能执行你看不见的操作，天然可审计；这是与"后台直接执行"类产品的根本区别 |
+| **管应用不管系统** | 主 agent **没有本机 shell**，只能 `local_info`（只读）+ `app_control`（改应用状态） | 限制爆炸半径：它最多把你的应用改乱，动不了操作系统 |
+| **渲染层无网络** | 渲染进程不直接联网，全部走 IPC；`contextIsolation` 开启 | 攻击面收敛到主进程一处 |
+
+### 不做什么
+
+- ❌ 不是多机编排平台（那是 Astral 的领域），不做跨机器批量执行
+- ❌ 不做 Web 端（保持桌面优先；云同步只同步配置，不同步终端流量）
+- ❌ 不做团队协作／组织权限（B 端能力，后置）
+- ❌ 不用 LangChain/CrewAI/向量库（见 ADR D1）
+- ❌ 不自动重连、不静默重试（连不上就明确报错，见 §10）
+
+---
+
+## 2. 竞争定位
+
+| | Netcatty | Astral | **ShrimpTerm** |
+|---|---|---|---|
+| 形态 | Electron SSH 工作台 + Catty Agent | Web/桌面多机 Agent 平台 | **本地 SSH 终端 + 会话内助手** |
+| 执行方式 | Agent 直接跑命令 | 远端 agent 在目标机执行 | **往你看得见的终端里打字** |
+| 能力面 | 宽（工作区/SFTP/监控/多机） | 宽（任意工具、多机） | **窄：只管这一个终端** |
+| 规模 | 6.9k star、React19+TS、GPL-3.0 | 700+ 文件、Go+TS、AGPL-3.0 | 个人项目 |
+| 差异化 | 功能全面 | 跨机编排 | **可见性 + 窄边界 + 零框架可读** |
+
+🔸 **定位结论**：不追功能面，只做"**你能亲眼看着它动手**"这一件事。功能比不过，可解释性可以赢。
+
+---
+
+## 3. 现有架构（📌 全部为代码现状）
+
+### 3.1 三个组成部分
+
+| 部分 | 位置 | 能做什么 | 记忆 |
+|---|---|---|---|
+| 终端 | 标签行 | 真 SSH 会话、多标签拖拽排序、镜像输入、可搜索 | — |
+| 主 Agent | `✦ Agent` 全屏标签 | 读本机信息、掌控本应用（增删改连接/改设置/读终端/读所有对话）、联网 | 多对话，持久化 |
+| 子 Agent | 右侧「本会话」 | **只能往这一个终端打字** | 按连接持久化 |
+
+### 3.2 技术栈
+
+**零框架。** agent 是手写 tool-calling 循环（`main.js` 的 `runAgent`，约 90 行），无 LangChain / 无 RAG / 无向量库。
+运行时依赖仅 3 个：`ssh2`、`iconv-lite`、`@xterm/*`。
+
+```
+渲染进程（无网络权限）── window.st.ask() ──▶ 主进程（Node）
+                                            ├── SSH 连接池       ssh2
+                                            ├── LLM 调用         OpenAI 兼容 /chat/completions
+                                            ├── 工具执行          local_info / app_control / web_fetch / run_in_terminals
+                                            └── 回推动作          app:cmd → 渲染进程执行
+```
+
+### 3.3 代码规模（📌 现状）
+
+| 文件 | 行数 | 职责 |
+|---|---|---|
+| `main.js` | 911 | 主进程：SSH 池、agent 循环、工具、设置/主机/记忆读写 |
+| `renderer/app.js` | 1489 | 界面逻辑：终端、标签拖拽、markdown、对话、弹窗、右键菜单 |
+| `renderer/index.html` | 726 | 结构与样式 |
+| `preload.js` | 43 | 安全桥，22 个 IPC 通道 |
+
+### 3.4 工程亮点（保留）
+
+`deploy.ps1` 在部署时会**校验 preload 暴露的每个 IPC 通道在 main 里都有 handler**——这是一个低成本、高收益的契约校验，🎯 迁移到 React/Vite 后必须保留（改成 CI 里跑一次脚本）。
+
+---
+
+## 4. 模块划分与状态
+
+| 模块 | 职责 | 状态 |
+|---|---|---|
+| M1 终端 | SSH 会话、多标签、镜像输入、搜索、编码（iconv） | 📌 可用 |
+| M2 主机管理 | 分组、增删改、种子导入 | 📌 可用（JSON 存储） |
+| M3 全局助手 | `app_control` 24 动作 + `local_info` + `web_fetch` | 📌 可用 |
+| M4 会话助手 | `run_in_terminals`（唯一执行口） | 📌 可用，**缺纪律**（见 §5.2） |
+| M5 记忆 | 多对话持久化（`history.json`） | 📌 可用 |
+| M6 设置 | 主题/字号/API 配置 | 📌 可用，⚠️ **API Key 明文** |
+| M7 构建发布 | 今仅 `deploy.ps1` 部署到本机 | 🎯 缺 electron-builder + Release |
+| M8 云同步 | 配置跨设备同步（服务端） | 🎯 未开始 |
+
+---
+
+## 5. 安全模型
+
+### 5.1 现状（📌 已成立，不要破坏）
+
+1. 渲染进程无网络权限，全部 IPC；
+2. `contextIsolation` 开启，preload 只暴露白名单通道；
+3. 主 agent 无本机 shell，只能改应用状态；
+4. 子 agent 只能在可见终端里打字。
+
+### 5.2 现状缺口（🎯 要补）
+
+| 缺口 | 风险 | 目标做法 |
+|---|---|---|
+| API Key 明文存 `settings.json` | 本机任意程序可读；误传仓库即泄露 | 用 Electron `safeStorage.encryptString` 加密落盘，读时解密到内存 |
+| 子 agent 可连续打任意命令 | 一次误判可能连打多条危险命令 | **三闸门**：①只允许白名单命令模式；②执行前预览"将要打什么"；③执行后读回输出复检 |
+| 无审计 | 出事无法回溯"谁在哪台机做了什么" | 每条 `run_in_terminals` 记 `{时间, 主机, 命令, 输出摘要, 结果}` 到本地审计 |
+| IPC 入参未校验 | 渲染层被注入时可越权调用 | 主进程对每个 handler 校验参数类型与范围 |
+
+### 5.3 助手输出格式（🎯 与 VpsOnCall 一致）
+
+固定四段：**结论 / 依据 / 已执行 / 待你确认**，总长 150 字以内。理由：用户要的是"现在什么情况"，不是命令手册。
+
+---
+
+## 6. 数据模型
+
+### 6.1 现状（📌 三份 JSON，位于安装目录 `resources/app/`）
+
+| 文件 | 内容 | 入库 |
+|---|---|---|
+| `hosts.json` | 连接列表（id/name/host/port/user/key/group） | ❌ `.gitignore` |
+| `settings.json` | 主题、字号、agent API（**明文 Key**） | ❌ |
+| `history.json` | 所有 agent 对话记忆 | ❌ |
+
+首次使用：`cp hosts.example.json hosts.json`。
+
+### 6.2 目标（🎯 云同步，v1.0）
+
+| 表 | 关键字段 | 说明 |
+|---|---|---|
+| `users` | id、email、pass_hash、created_at | 账号 |
+| `devices` | id、user_id、name、platform、last_seen | 每台装了客户端的电脑 |
+| `hosts` | id、user_id、name、host、port、user、auth_type、group、updated_at、deleted_at | **不同步私钥本体**，只同步"用哪个本地 key 的引用" |
+| `sync_log` | id、user_id、device_id、entity、op、payload_hash、ts | 增量同步与冲突排查 |
+
+冲突策略：以 `updated_at` 后写覆盖；客户端保留本地副本与离线队列。
+
+---
+
+## 7. 接口契约
+
+### 7.1 IPC 通道（📌 22 个，preload 白名单）
+
+```
+app:state
+win:minimize  win:maximize  win:close
+hosts:list    hosts:save    hosts:delete    hosts:addGroup    hosts:groups
+term:open     term:input    term:resize     term:close        term:setEncoding
+hist:list     hist:get      hist:save      hist:clear
+settings:get  settings:save
+agent:ask     agent:test
+```
+
+**契约规则**：新增通道必须同时出现在 `preload.js` 与 `main.js`，由 `deploy.ps1`（将来是 CI）校验对齐。
+
+### 7.2 Agent 工具面（📌 现状）
+
+| 工具 | 归属 | 说明 |
+|---|---|---|
+| `app_control`（24 动作） | 主 agent | 连接管理、会话操作、对话、设置 |
+| `local_info` | 主 agent | 本机 CPU/内存/磁盘/网络（只读） |
+| `web_fetch` | 主 agent | 抓网页文本 |
+| `run_in_terminals(command, note)` | 子 agent | 往选中终端打字并等输出——**唯一能操作服务器的口** |
+
+🎯 **目标**：子 agent 增加 `preview`（先给命令不给执行）与 `recheck`（执行后读回校验）能力，与 `run_in_terminals` 组成三闸门。
+
+### 7.3 服务端接口（🎯 v1.0）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/auth/register` `/login` | JWT 签发 |
+| GET/POST/PATCH/DELETE | `/api/hosts` | 主机配置 CRUD |
+| POST | `/api/sync` | 增量上报（带 `updated_at`） |
+| GET | `/api/sync?since=` | 增量拉取 |
+
+**红线**：终端流量、命令输出、私钥本体**永不经过服务端**。
+
+---
+
+## 8. 版本路线
+
+| 版本 | 内容 | 简历产出 |
+|---|---|---|
+| **v0.2（可分发）** | electron-builder 打包、首个 Release、README 截图、LICENSE | 完成打包发布，产出 Windows 安装包 |
+| **v0.3（敢用）** | 三闸门 + 四段式 + 审计 + safeStorage | 实现可见执行的助手安全模型 |
+| **v1.0（全栈）** | 云同步服务端（Postgres + JWT + 增量同步 + Docker + CI） | 独立完成客户端 + 服务端全栈 |
+| v1.x（可选） | 前端重构到 React+TS、SFTP、监控视图 | — |
+
+详细任务拆解见 `docs/完善路线.md` §3。
+
+---
+
+## 9. 里程碑与验收
+
+| 里程碑 | 验收标准 |
+|---|---|
+| M0 止血 | 仓库无真实 IP/路径；有 LICENSE；`hosts.example.json` 可用；README 有截图 ✅ 已完成 |
+| M1 v0.2 | 生成 Windows 安装包；Release 可下载；别人按 README 能装上并连上自己的机器 |
+| M2 v0.3 | 危险命令会被拦下并请求确认；每条执行有审计记录；Key 加密存储 |
+| M3 v1.0 | 两台电脑登录同一账号后配置一致；断网可继续用本地配置；服务端一行命令起 |
+
+---
+
+## 10. 失败模式与对策
+
+| 失败模式 | 后果 | 对策 | 状态 |
+|---|---|---|---|
+| agent 连打危险命令 | 误删数据 | 三闸门 + 白名单模式 | 🎯 |
+| agent 说"已修复"但没验证 | 用户误以为好了 | 执行后强制读回输出复检 | 🎯 |
+| Key 明文落盘 | 本机泄露 / 误传仓库 | safeStorage 加密 | 🎯 |
+| 真实主机信息进仓库 | 公网暴露服务器 | `.gitignore` + example 文件 + 审计提交 | ✅ |
+| SSH 断线后静默重试 | 命令重复执行 | 明确报错，由用户决定是否重连 | 📌 |
+| 中文输出乱码 | 读不出错误信息 | `iconv-lite` 按会话编码转换 | 📌 |
+| 同步冲突覆盖 | 配置丢失 | `updated_at` 后写 + 客户端保留副本 | 🎯 |
+| 零框架导致规模失控 | 维护成本上升 | 单文件超 1500 行即触发重构（M1/M2/M3 已接近） | ⚠️ |
+
+---
+
+## 11. 待拍板问题
+
+| # | 问题 | 倾向 | 阻塞 |
+|---|---|---|---|
+| 1 | 是否先做 v0.2 打包，还是先补三闸门？ | **先打包**（一天见效，简历立刻可用） | 排期 |
+| 2 | 前端是否迁 React+TS？何时？ | v1.0 之后，先不迁 | M1—M3 |
+| 3 | 云同步只同步主机配置，还是也同步对话记忆？ | **只同步配置**（隐私） | v1.0 |
+| 4 | 服务端技术选型：Node(Express/Fastify) 还是 Go？ | Node（与客户端同语言，复用类型） | v1.0 |
+| 5 | 是否做 SFTP？ | 暂不做（Netcatty 已很强） | — |
+
+---
+
+## 12. 与简历的对应
+
+| 简历条目 | 依据 |
+|---|---|
+| 完成 Electron 应用打包与发布流程 | M1 |
+| 实现"可见执行"的助手安全模型（三闸门 + 四段式 + 审计） | M2 |
+| 实现配置云同步：表模型、JWT、增量同步与冲突处理、Docker 部署 | M3 |
+| 研读并对比 Netcatty / Astral 架构，定位差异化 | §2 + `docs/技术调研.md` |
+
+---
+
+## 13. 决策记录（ADR）
+
+| # | 决策 | 理由 | 日期 |
+|---|---|---|---|
+| D1 | 保留零框架、手写 tool-calling 循环 | 90 行可读、可调试、无黑盒依赖；面试时能完整讲清 agent 循环的每一步 | 10-29 |
+| D2 | 子 agent 只能在可见终端里打字 | 可见性 = 可审计；这是与"后台执行"类产品的根本区别 | 10-29 |
+| D3 | 主 agent 不给本机 shell | 限制爆炸半径：管应用不管系统 | 10-29 |
+| D4 | 不做多机编排、不做 Web 端 | 那是 Astral / Netcatty 的地盘，硬碰只会做出更差的版本 | 10-29 |
+| D5 | 云同步只同步配置，不同步终端流量与私钥 | 隐私边界清晰，且大幅降低服务端风险 | 10-29 |
+| D6 | `hosts.json` 永不入库 | 含真实 IP/用户名/私钥路径；用 example + gitignore 管理 | 10-29 |
+| D7 | 不追功能面，只追"可解释性" | 功能永远比不过成熟产品，可解释性可以赢 | 10-29 |
+
+---
+
+## 14. 变更记录
+
+| 版本 | 变更 | 日期 |
+|---|---|---|
+| v1.0 | 首版：定义与三条原则、竞争定位、现状架构（22 IPC / 4 工具 / 零框架）、模块状态、安全模型与四个缺口、数据模型与云同步表、接口契约、版本路线、里程碑、失败模式、ADR | 10-29 |
