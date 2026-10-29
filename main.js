@@ -248,11 +248,20 @@ function stripAnsi(s) {
     .replace(/\r\n?/g, '\n')
 }
 
-function cleanOutput(raw, echoLine) {
-  const lines = stripAnsi(raw).split('\n')
+function cleanOutput(raw, echoLine, token) {
+  let text = stripAnsi(raw)
+  // 去掉命令回显：回显那一行里一定含有 token（printf 的格式串），切到那一行之后
+  if (token) {
+    const i = text.lastIndexOf(token)
+    if (i >= 0) {
+      const nl = text.indexOf('\n', i)
+      text = nl >= 0 ? text.slice(nl + 1) : ''
+    }
+  }
+  const lines = text.split('\n')
   const head = String(echoLine || '').slice(0, 40)
   while (lines.length && (lines[0].trim() === '' || (head && lines[0].includes(head)))) lines.shift()
-  let text = lines.join('\n').replace(/[ \t]+$/gm, '').replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n').trim()
+  text = lines.join('\n').replace(/[ \t]+$/gm, '').replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n').trim()
   if (text.length > CMD_OUTPUT_MAX) text = '\u2026\uff08\u524d\u90e8\u5df2\u622a\u65ad\uff09\n' + text.slice(-CMD_OUTPUT_MAX)
   return text
 }
@@ -261,21 +270,25 @@ async function runCommand(id, cmd, timeoutMs) {
   const sess = sessions.get(id)
   if (!sess) return { ok: false, error: 'session not found', exit_code: null, output: '' }
 
-  const token = '__SHRIMP_DONE_' + Math.random().toString(36).slice(2, 8) + '__'
+  // 标记必须只由“真正的新行 + token + :数字”构成。
+  // 关键：终端会把发出去的命令原样回显，回显里的 \n 是字面反斜杠+n，
+  // 不是换行——所以用 ^\r?\n 锚定就能把回显排除掉。
+  const token = '__SHRIMP_' + Math.random().toString(36).slice(2, 8).toUpperCase() + '_DONE__'
+  const doneRe = new RegExp('(?:\\r?\\n)' + token + ':(\\d+)')
   const wrapped = cmd + ' ; printf "\\n' + token + ':%s\\n" "$?"'
+
   sess.tail = ''
   if (!writeTo(id, wrapped + '\n')) return { ok: false, error: 'write failed', exit_code: null, output: '' }
 
   const deadline = Date.now() + (timeoutMs || CMD_TIMEOUT_MS)
   while (Date.now() < deadline) {
     await sleep(CMD_POLL_MS)
-    const idx = sess.tail.indexOf(token)
-    if (idx >= 0) {
-      const m = sess.tail.slice(idx).match(new RegExp(token + ':(\\d+)'))
+    const m = sess.tail.match(doneRe)
+    if (m && typeof m.index === 'number') {
       return {
         ok: true,
-        exit_code: m ? Number(m[1]) : null,
-        output: cleanOutput(sess.tail.slice(0, idx), wrapped),
+        exit_code: Number(m[1]),
+        output: cleanOutput(sess.tail.slice(0, m.index), wrapped, token),
       }
     }
   }
@@ -283,7 +296,7 @@ async function runCommand(id, cmd, timeoutMs) {
     ok: false,
     timeout: true,
     exit_code: null,
-    output: cleanOutput(sess.tail, wrapped),
+    output: cleanOutput(sess.tail, wrapped, token),
   }
 }
 

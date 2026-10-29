@@ -11,7 +11,8 @@
     "start": "electron .",
     "pack": "electron-builder --win --dir",
     "dist": "electron-builder --win",
-    "ship": "powershell -ExecutionPolicy Bypass -File scripts/ship.ps1"
+    "ship": "powershell -ExecutionPolicy Bypass -File scripts/ship.ps1",
+    "test": "node tests/sentinel.test.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
