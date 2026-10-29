@@ -19,9 +19,23 @@ Start-Sleep -Seconds 2
 Write-Host '==> syncing sources' -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path (Join-Path $app 'renderer\assets'), (Join-Path $app 'assets') | Out-Null
 
-foreach ($f in 'package.json', 'main.js', 'preload.js', 'hosts.json') {
+foreach ($f in 'package.json', 'main.js', 'preload.js') {
   Copy-Item (Join-Path $src $f) $app -Force
   Write-Host "    $f"
+}
+
+# hosts.json 是本地运行数据（不入库）：源码里有就覆盖，没有就保留目标端已有的，
+# 两边都没有才用 hosts.example.json 兜底，避免新克隆仓库首次部署直接报错。
+$hSrc = Join-Path $src 'hosts.json'
+$hDst = Join-Path $app 'hosts.json'
+if (Test-Path $hSrc) {
+  Copy-Item $hSrc $hDst -Force
+  Write-Host '    hosts.json'
+} elseif (-not (Test-Path $hDst)) {
+  Copy-Item (Join-Path $src 'hosts.example.json') $hDst -Force
+  Write-Host '    hosts.json (来自 hosts.example.json，请改成你自己的主机)' -ForegroundColor Yellow
+} else {
+  Write-Host '    hosts.json (保留已存在的配置)'
 }
 foreach ($f in 'index.html', 'app.js') {
   Copy-Item (Join-Path $src "renderer\$f") (Join-Path $app 'renderer') -Force
