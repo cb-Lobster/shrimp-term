@@ -283,6 +283,18 @@
   /* ===== right: per-session sub agent ===== */
   #right { width: 320px; flex: 0 0 320px; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   #right.hidden { display: none; }
+  /* 右栏收起后贴在窗口右缘的把手：保证任何时候都能把它拉回来 */
+  #rightHandle {
+    display: none; position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+    z-index: 60; width: 26px; padding: 10px 0;
+    background: var(--surface2); border: 1px solid var(--line2); border-right: 0;
+    border-radius: 8px 0 0 8px; cursor: pointer; color: var(--accent);
+    flex-direction: column; align-items: center; gap: 5px; font-size: 12px; line-height: 1;
+    box-shadow: -2px 0 6px rgba(0, 0, 0, .12);
+  }
+  #rightHandle:hover { background: var(--surface3); }
+  #rightHandle .v { writing-mode: vertical-rl; letter-spacing: 2px; color: var(--dim); }
+  body.right-collapsed #rightHandle { display: flex; }
   #subHead { height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; }
   #subHead .sub { font-weight: 400; color: var(--dim2); font-size: 11px; margin-left: auto; }
   #subLog { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; min-height: 0; }
@@ -468,13 +480,15 @@
 
       <aside id="right">
         <div id="subHead">本会话 <span class="sub" id="subTarget">未连接</span><button id="subHist" title="本会话的历史记忆" style="margin-left:auto;width:auto;padding:0 7px;font-size:11px">记忆</button>
-        <button id="subHide" title="隐藏右侧栏">&#187;</button></div>
+        <button id="subHide" title="收起右侧栏（Ctrl+Shift+A）">&#187;</button></div>
         <div id="subLog"></div>
         <div id="subComposer">
           <textarea id="subInput" placeholder="只针对当前会话提问…"></textarea>
           <div id="subRow"><span style="color:var(--dim2);font-size:11px">记忆独立</span><button id="subSend">发送</button></div>
         </div>
       </aside>
+
+      <div id="rightHandle" title="展开本会话助手（Ctrl+Shift+A）"><span>&#10022;</span><span class="v">助手</span></div>
     </div>
   </div>
 

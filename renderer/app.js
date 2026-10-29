@@ -881,6 +881,8 @@ function setPanelVisible(v) {
 function setRightVisible(v) {
   el('right').classList.toggle('hidden', !v)
   rightHiddenByUser = !v
+  document.body.classList.toggle('right-collapsed', !v)
+  el('btnSubToggle').classList.toggle('on', !!v)
   if (v) {
     const t = tabById(activeId)
     if (t) setTimeout(() => { try { t.fit.fit() } catch (e) {} }, 60)
@@ -891,6 +893,13 @@ el('panelHide').onclick = () => setPanelVisible(false)
 
 el('subHide').onclick = () => setRightVisible(false)
 el('btnSubToggle').onclick = () => setRightVisible(el('right').classList.contains('hidden'))
+el('rightHandle').onclick = () => setRightVisible(true)
+document.addEventListener('keydown', (ev) => {
+  if (ev.ctrlKey && ev.shiftKey && !ev.altKey && (ev.key === 'A' || ev.key === 'a')) {
+    ev.preventDefault()
+    setRightVisible(el('right').classList.contains('hidden'))
+  }
+})
 
 // --- session dialog
 function openSessionSettings(hostId) {
