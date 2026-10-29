@@ -1,14 +1,58 @@
 {
   "name": "shrimp-term",
-  "version": "0.0.1",
-  "description": "shrimp-term: SSH client with an ops agent built in (demo)",
+  "productName": "ShrimpTerm",
+  "version": "0.2.0",
+  "description": "ShrimpTerm: 极简 SSH 终端，带一个只能在你看着的终端里打字的运维助手",
+  "author": "cb-Lobster",
+  "license": "MIT",
   "main": "main.js",
   "private": true,
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win --dir",
+    "dist": "electron-builder --win"
+  },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/xterm": "^6.0.0",
     "iconv-lite": "^0.7.3",
     "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.cblobster.shrimpterm",
+    "productName": "ShrimpTerm",
+    "copyright": "MIT (c) cb-Lobster",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "renderer/**/*",
+      "assets/**/*",
+      "hosts.example.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/shrimp.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ShrimpTerm"
+    }
   }
 }
