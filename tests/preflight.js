@@ -96,6 +96,24 @@ step('源码无本机路径 / 公网 IP / 密钥', () => {
   return files.length + ' 个文件干净'
 })
 
+// 6. 渲染层核心函数：有且仅有一处定义
+//    事故：一次批量删除把 persistTabAgent 的定义删掉了，但 7 处调用还在——
+//    语法检查发现不了，运行时才炸。这里做一次静态对账。
+step('渲染层核心函数定义齐全', () => {
+  const app = fs.readFileSync(rel(path.join('renderer', 'app.js')), 'utf8')
+  const need = ['newConvObj', 'convTitleFrom', 'normalizeAgent', 'activeConv',
+    'persistTabAgent', 'renderSub', 'askSub', 'openMemSel']
+  const problems = []
+  for (const fn of need) {
+    const defs = app.match(new RegExp('^(?:async )?function ' + fn + '\\(', 'gm')) || []
+    const uses = app.match(new RegExp('(?:^|[^.\\w])' + fn + '\\(', 'g')) || []
+    if (defs.length !== 1) problems.push(fn + ' 定义 ' + defs.length + ' 处')
+    else if (uses.length < 2) problems.push(fn + ' 定义了但没有调用')
+  }
+  if (problems.length) throw new Error(problems.join('; '))
+  return need.length + ' 个函数各一处定义且有调用'
+})
+
 // 输出
 console.log('')
 for (const r of results) {

@@ -68,23 +68,75 @@ function termTheme() { return TERM_THEMES[termThemeName] || TERM_THEMES.dark }
 
 const tabById = (id) => tabs.find((t) => t.id === id)
 
-function persistAgent(key, state, meta) {
-  if (!key || !state || typeof window.st.histSave !== 'function') return
-  try {
-    window.st.histSave(key, Object.assign(
-      { log: state.log, history: state.history },
-      meta || {},
-    ))
-  } catch (e) {}
+// ---------------- 助手对话（每个 SSH 会话下挂多段对话）
+function newConvObj(title) {
+  return {
+    id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+    title: title || '\u65b0\u5bf9\u8bdd',
+    log: [], history: [], createdAt: Date.now(), updatedAt: Date.now(),
+  }
+}
+
+function convTitleFrom(log, fallback) {
+  const first = (log || []).find((m) => m.cls === 'me')
+  const t = first && first.text ? String(first.text).trim() : ''
+  return (t || fallback || '\u65b0\u5bf9\u8bdd').slice(0, 24)
+}
+
+// 兼容旧结构 { log, history }：迁移成一段对话
+function normalizeAgent(saved, fallbackTitle) {
+  const out = { convs: [], activeId: null }
+  if (saved && Array.isArray(saved.convs) && saved.convs.length) {
+    out.convs = saved.convs.map((c) => ({
+      id: c.id || ('c' + Math.random().toString(36).slice(2, 8)),
+      title: c.title || '\u65b0\u5bf9\u8bdd',
+      log: Array.isArray(c.log) ? c.log : [],
+      history: Array.isArray(c.history) ? c.history : [],
+      createdAt: c.createdAt || Date.now(),
+      updatedAt: c.updatedAt || c.createdAt || Date.now(),
+    }))
+    out.activeId = saved.activeId || out.convs[out.convs.length - 1].id
+  } else {
+    const legacyLog = saved && Array.isArray(saved.log) ? saved.log : null
+    const legacyHist = saved && Array.isArray(saved.history) ? saved.history : null
+    if ((legacyLog && legacyLog.length) || (legacyHist && legacyHist.length)) {
+      const c = newConvObj(convTitleFrom(legacyLog, fallbackTitle))
+      c.log = legacyLog || []
+      c.history = legacyHist || []
+      out.convs.push(c)
+      out.activeId = c.id
+    }
+  }
+  return out
+}
+
+function activeConv(tab) {
+  if (!tab.agent || !Array.isArray(tab.agent.convs)) tab.agent = normalizeAgent(tab.agent, tab.name)
+  const a = tab.agent
+  if (!a.convs.length) {
+    const c = newConvObj()
+    a.convs.push(c)
+    a.activeId = c.id
+  }
+  let c = a.convs.find((x) => x.id === a.activeId)
+  if (!c) { c = a.convs[a.convs.length - 1]; a.activeId = c.id }
+  return c
 }
 
 function persistTabAgent(tab) {
-  const firstUser = (tab.agent.log.find((m) => m.cls === 'me') || {}).text || tab.name
-  persistAgent(tab.memKey, tab.agent, {
-    hostId: tab.hostId,
-    name: String(firstUser).slice(0, 40),
-    createdAt: tab.memCreatedAt || (tab.memCreatedAt = Date.now()),
-  })
+  if (!tab.memKey || typeof window.st.histSave !== 'function') return
+  const c = activeConv(tab)
+  const count = tab.agent.convs.reduce((n, x) => n + (x.log ? x.log.length : 0), 0)
+  try {
+    window.st.histSave(tab.memKey, {
+      convs: tab.agent.convs,
+      activeId: tab.agent.activeId,
+      hostId: tab.hostId,
+      name: c.title,
+      count,
+      createdAt: tab.memCreatedAt || (tab.memCreatedAt = Date.now()),
+    })
+  } catch (e) {}
 }
 
 // ---------------- window controls
@@ -338,9 +390,7 @@ function createTab(id, host, ov, saved, failMsg, pendingMsg) {
     pending: !!pendingMsg,
     failed: !!failMsg,
     memKey: host.id,
-    agent: (saved && Array.isArray(saved.log) && saved.log.length)
-      ? { log: saved.log, history: saved.history || [] }
-      : { log: [], history: [] },
+    agent: normalizeAgent(saved, host.name || host.id),
   }
   tabs.push(tab)
 
@@ -721,14 +771,18 @@ function renderSub() {
   if (!t) {
     const d = document.createElement('div')
     d.className = 'msg intro'
-    d.textContent = '\u5148\u6253\u5f00\u4e00\u4e2a\u4f1a\u8bdd\u3002'
+    d.textContent = '\u5148\u53cc\u51fb\u5de6\u4fa7\u4f1a\u8bdd\uff0c\u52a9\u624b\u624d\u6709\u4f5c\u7528\u5bf9\u8c61\u3002'
     box.appendChild(d)
     return
   }
-  if (!t.agent.log.length) {
-    t.agent.log.push({ cls: 'intro', text: '\u53ea\u4f5c\u7528\u4e8e ' + t.name + '\uff0c\u8bb0\u5fc6\u72ec\u7acb\u3002' })
+  const conv = activeConv(t)
+  if (!conv.log.length) {
+    const d = document.createElement('div')
+    d.className = 'msg intro'
+    d.textContent = '\u65b0\u5bf9\u8bdd \u00b7 \u53ea\u4f5c\u7528\u4e8e ' + t.name + '\u3002\u4e0a\u4e00\u6bb5\u5bf9\u8bdd\u5728\u300c\u5386\u53f2\u4f1a\u8bdd\u300d\u91cc\u3002'
+    box.appendChild(d)
   }
-  for (const m of t.agent.log) {
+  for (const m of conv.log) {
     const d = document.createElement('div')
     d.className = 'msg ' + m.cls
     fillMsg(d, m.cls, m.text)
@@ -744,39 +798,44 @@ async function askSub() {
   const t = tabById(activeId)
   if (subBusy) return
   if (!t) {
-    statusEl.textContent = '助手需要一台机器：先双击左侧会话连上'
+    statusEl.textContent = '\u52a9\u624b\u9700\u8981\u4e00\u53f0\u673a\u5668\uff1a\u5148\u53cc\u51fb\u5de6\u4fa7\u4f1a\u8bdd\u8fde\u4e0a'
     renderSub()
     return
   }
   if (!text) { input.focus(); return }
-  if (!hasApi()) { statusEl.textContent = '尚未配置 Agent API，助手不可用'; openGlobal('api'); return }
+  if (!hasApi()) { statusEl.textContent = '\u5c1a\u672a\u914d\u7f6e Agent API\uff0c\u52a9\u624b\u4e0d\u53ef\u7528'; openGlobal('api'); return }
 
+  const conv = activeConv(t)
   subBusy = true
   updateHeads()
   input.value = ''
-  t.agent.log.push({ cls: 'me', text })
+  conv.log.push({ cls: 'me', text })
   const thinking = { cls: 'thinking', text: '\u601d\u8003\u4e2d\u2026' }
-  t.agent.log.push(thinking)
+  conv.log.push(thinking)
   renderSub()
 
   try {
-    const res = await window.st.ask({ text, targets: [t.id], history: t.agent.history, scope: 'session' })
-    const i = t.agent.log.indexOf(thinking)
-    if (i >= 0) t.agent.log.splice(i, 1)
-    if (res.error) t.agent.log.push({ cls: 'err', text: res.error })
+    const res = await window.st.ask({ text, targets: [t.id], history: conv.history, scope: 'session' })
+    const i = conv.log.indexOf(thinking)
+    if (i >= 0) conv.log.splice(i, 1)
+    if (res.error) conv.log.push({ cls: 'err', text: res.error })
     else {
-      for (const a of res.actions || []) t.agent.log.push({ cls: 'act', text: '$ ' + a.command + (a.note ? '\n  ' + a.note : '') })
+      for (const a of res.actions || []) conv.log.push({ cls: 'act', text: '$ ' + a.command + (a.note ? '\n  ' + a.note : '') })
       if (res.reply) {
-        t.agent.log.push({ cls: 'bot', text: res.reply })
-        t.agent.history.push({ role: 'user', content: text })
-        t.agent.history.push({ role: 'assistant', content: res.reply })
+        conv.log.push({ cls: 'bot', text: res.reply })
+        conv.history.push({ role: 'user', content: text })
+        conv.history.push({ role: 'assistant', content: res.reply })
       }
     }
   } catch (e) {
-    const i = t.agent.log.indexOf(thinking)
-    if (i >= 0) t.agent.log.splice(i, 1)
-    t.agent.log.push({ cls: 'err', text: String(e && e.message ? e.message : e) })
+    const i = conv.log.indexOf(thinking)
+    if (i >= 0) conv.log.splice(i, 1)
+    conv.log.push({ cls: 'err', text: String(e && e.message ? e.message : e) })
   } finally {
+    if (conv.title === '\u65b0\u5bf9\u8bdd' && conv.log.some((m) => m.cls === 'me')) {
+      conv.title = convTitleFrom(conv.log, t.name)
+    }
+    conv.updatedAt = Date.now()
     subBusy = false
     updateHeads()
     persistTabAgent(t)
@@ -1072,70 +1131,78 @@ el('ctxmenu').onclick = async (ev) => {
 // ---------------- session memory picker
 async function openMemSel() {
   const cur = tabById(activeId)
-  if (!cur) { statusEl.textContent = '先打开一个会话'; return }
+  if (!cur) { statusEl.textContent = '\u5148\u6253\u5f00\u4e00\u4e2a\u4f1a\u8bdd'; return }
+  activeConv(cur)
   el('memMsg').textContent = ''
   const box = el('memList')
   box.replaceChildren()
 
   const head = document.createElement('div')
-  head.style.cssText = 'font-size:11.5px;color:var(--dim2);line-height:1.7'
-  head.textContent = '当前标签独立记忆：' + cur.agent.log.length + ' 条消息。同一主机的不同标签互不影响。'
+  head.style.cssText = 'font-size:11.5px;color:var(--dim2);line-height:1.7;display:flex;align-items:center;gap:8px'
+  const txt = document.createElement('span')
+  txt.style.flex = '1'
+  txt.textContent = (cur.name || '') + ' \u00b7 \u5171 ' + cur.agent.convs.length + ' \u6bb5\u5bf9\u8bdd\uff0c\u70b9\u300c\u6253\u5f00\u300d\u53ef\u56de\u5230\u90a3\u4e00\u6bb5\u7ee7\u7eed\u95ee\u3002'
+  const btnNew = document.createElement('button')
+  btnNew.className = 'pill'
+  btnNew.textContent = '\uff0b \u65b0\u4f1a\u8bdd'
+  btnNew.onclick = () => {
+    const c = newConvObj()
+    cur.agent.convs.push(c)
+    cur.agent.activeId = c.id
+    persistTabAgent(cur)
+    renderSub()
+    el('memsel').classList.remove('on')
+    el('subInput').focus()
+  }
+  head.append(txt, btnNew)
   box.appendChild(head)
 
-  let list = []
-  try { list = await window.st.histList(cur.hostId) } catch (e) {}
-
-  if (!list.length) {
-    const d = document.createElement('div')
-    d.style.cssText = 'color:var(--dim2);font-size:12px;padding:8px 0'
-    d.textContent = '这台主机还没有保存过记忆。'
-    box.appendChild(d)
-  }
-
-  for (const rec of list) {
+  const convs = cur.agent.convs.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+  for (const c of convs) {
     const row = document.createElement('div')
     row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid var(--line);border-radius:8px'
     const info = document.createElement('div')
     info.style.cssText = 'flex:1;min-width:0'
     const nm = document.createElement('div')
     nm.style.cssText = 'font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
-    const firstUser = (rec.name || '').trim()
-    nm.textContent = firstUser || rec.key
+    nm.textContent = c.title || '\u65b0\u5bf9\u8bdd'
     const sub = document.createElement('div')
     sub.style.cssText = 'font-size:10.5px;color:var(--dim2)'
-    const when = rec.updatedAt ? new Date(rec.updatedAt).toLocaleString() : ''
-    sub.textContent = rec.count + ' 条 · ' + when + (rec.key === cur.memKey ? ' · 当前' : '')
+    const when = c.updatedAt ? new Date(c.updatedAt).toLocaleString() : ''
+    const isCur = c.id === cur.agent.activeId
+    sub.textContent = (c.log ? c.log.length : 0) + ' \u6761 \u00b7 ' + when + (isCur ? ' \u00b7 \u5f53\u524d' : '')
     info.append(nm, sub)
 
-    const btnLoad = document.createElement('button')
-    btnLoad.className = 'pill'
-    btnLoad.textContent = '载入'
-    btnLoad.onclick = async () => {
-      const v = await window.st.histGet(rec.key)
-      if (!v) return
-      cur.memKey = rec.key
-      cur.memCreatedAt = rec.createdAt || Date.now()
-      cur.agent = { log: v.log || [], history: v.history || [] }
+    const btnOpen = document.createElement('button')
+    btnOpen.className = 'pill'
+    btnOpen.textContent = isCur ? '\u5f53\u524d' : '\u6253\u5f00'
+    btnOpen.disabled = isCur
+    btnOpen.onclick = () => {
+      cur.agent.activeId = c.id
+      persistTabAgent(cur)
       renderSub()
+      updateHeads()
       el('memsel').classList.remove('on')
-      statusEl.textContent = '已载入该记忆'
+      statusEl.textContent = '\u5df2\u5207\u56de\uff1a' + (c.title || '\u65b0\u5bf9\u8bdd')
       setTimeout(() => { statusEl.textContent = '' }, 2000)
     }
 
     const btnDel = document.createElement('button')
     btnDel.className = 'pill'
-    btnDel.textContent = '删除'
-    btnDel.onclick = async () => {
-      await window.st.histClear(rec.key)
-      if (cur.memKey === rec.key) {
-        cur.memKey = cur.hostId
-        cur.agent = { log: [], history: [] }
-        renderSub()
+    btnDel.textContent = '\u5220\u9664'
+    btnDel.onclick = () => {
+      cur.agent.convs = cur.agent.convs.filter((x) => x.id !== c.id)
+      if (!cur.agent.convs.length) cur.agent.convs.push(newConvObj())
+      if (!cur.agent.convs.some((x) => x.id === cur.agent.activeId)) {
+        cur.agent.activeId = cur.agent.convs[cur.agent.convs.length - 1].id
       }
+      persistTabAgent(cur)
+      renderSub()
+      updateHeads()
       openMemSel()
     }
 
-    row.append(info, btnLoad, btnDel)
+    row.append(info, btnOpen, btnDel)
     box.appendChild(row)
   }
   el('memsel').classList.add('on')
@@ -1154,25 +1221,17 @@ function disarmSubNew() {
 }
 el('subNew').onclick = () => {
   const t = tabById(activeId)
-  if (!t) { statusEl.textContent = '先双击左侧会话连上机器，助手才有作用对象'; return }
-  if (subNewArmed !== t.id) {
-    subNewArmed = t.id
-    const b = el('subNew')
-    b.classList.add('armed')
-    b.textContent = '确认清空？'
-    statusEl.textContent = '再点一次确认：将清空「' + t.name + '」的助手对话与上下文（终端连接不受影响）'
-    clearTimeout(subNewTimer)
-    subNewTimer = setTimeout(disarmSubNew, 4000)
-    return
-  }
-  disarmSubNew()
-  t.agent.log = []
-  t.agent.history = []
+  if (!t) { statusEl.textContent = '\u5148\u53cc\u51fb\u5de6\u4fa7\u4f1a\u8bdd\u8fde\u4e0a\u673a\u5668\uff0c\u52a9\u624b\u624d\u6709\u4f5c\u7528\u5bf9\u8c61'; return }
+  const c = newConvObj()
+  t.agent = t.agent && Array.isArray(t.agent.convs) ? t.agent : normalizeAgent(t.agent, t.name)
+  t.agent.convs.push(c)
+  t.agent.activeId = c.id
+  el('subInput').value = ''
   persistTabAgent(t)
   renderSub()
   updateHeads()
-  statusEl.textContent = '已开始新会话：助手上下文已清空，终端保持连接'
   el('subInput').focus()
+  statusEl.textContent = '\u5df2\u65b0\u5efa\u5bf9\u8bdd\uff1b\u4e0a\u4e00\u6bb5\u4fdd\u7559\u5728\u300c\u5386\u53f2\u4f1a\u8bdd\u300d'
 }
 
 
