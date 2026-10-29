@@ -10,7 +10,8 @@
   "scripts": {
     "start": "electron .",
     "pack": "electron-builder --win --dir",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "ship": "powershell -ExecutionPolicy Bypass -File scripts/ship.ps1"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -28,10 +29,7 @@
     "productName": "ShrimpTerm",
     "copyright": "MIT (c) cb-Lobster",
     "asar": false,
-    "directories": {
-      "output": "dist",
-      "buildResources": "assets"
-    },
+    "directories": { "output": "dist", "buildResources": "assets" },
     "files": [
       "main.js",
       "preload.js",
@@ -40,13 +38,7 @@
       "assets/**/*",
       "hosts.example.json"
     ],
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "icon": "assets/shrimp.ico",
-      "signAndEditExecutable": false
-    },
+    "win": { "target": ["nsis"], "icon": "assets/shrimp.ico", "signAndEditExecutable": false },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
