@@ -119,7 +119,12 @@ function showView(v) {
 function updateHeads() {
   const t = tabById(activeId)
   el('subTarget').textContent = t ? t.name : '未连接'
-  el('subSend').disabled = subBusy || !t || !hasApi()
+  // 只在“正在发送”时禁用；其余情况保持可点，点了给明确提示，而不是静默无反应
+  el('subSend').disabled = subBusy
+  const why = !hasApi() ? '先到「设置 → Agent API」填 Key' : (!t ? '先双击左侧会话连上机器' : '')
+  el('subSend').title = why || '发送（Enter）'
+  el('subInput').placeholder = why ? '助手不可用：' + why : '只针对当前会话提问…'
+  el('subInput').disabled = subBusy
 }
 
 function hasApi() { return !!(settings.agent && settings.agent.apiKey) }
@@ -733,8 +738,14 @@ async function askSub() {
   const input = el('subInput')
   const text = input.value.trim()
   const t = tabById(activeId)
-  if (!text || subBusy || !t) return
-  if (!hasApi()) { statusEl.textContent = '尚未配置 Agent API，agent 不可用'; openGlobal('api'); return }
+  if (subBusy) return
+  if (!t) {
+    statusEl.textContent = '助手需要一台机器：先双击左侧会话连上'
+    renderSub()
+    return
+  }
+  if (!text) { input.focus(); return }
+  if (!hasApi()) { statusEl.textContent = '尚未配置 Agent API，助手不可用'; openGlobal('api'); return }
 
   subBusy = true
   updateHeads()
