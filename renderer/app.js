@@ -288,7 +288,6 @@ async function openHost(host) {
     tab.term.focus()
     markOnline(host.id, true)
     statusEl.textContent = ''
-    el('sftpPathText').textContent = '/home/' + (host.user || 'ubuntu')
   } catch (e) {
     const msg = (e && e.message) ? e.message : String(e)
     tab.pending = false
@@ -485,49 +484,6 @@ el('searchInput').addEventListener('keydown', (ev) => {
   try { ev.shiftKey ? t.search.findPrevious(ev.target.value) : t.search.findNext(ev.target.value) } catch (e) {}
 })
 
-// ---------------- sftp pane (demo data)
-const DEMO = [
-  { n: '..', dir: true },
-  { n: '.ssh', dir: true, d: '10-22 09:14' },
-  { n: 'ops-gateway', dir: true, d: '10-22 17:41' },
-  { n: 'feishu-bridge', dir: true, d: '10-22 16:59' },
-  { n: 'shrimp-ops-tools', dir: true, d: '10-22 17:03' },
-  { n: '.bashrc', dir: false, s: 3771, d: '10-20' },
-  { n: '.dsh-web.env', dir: false, s: 53, d: '10-22' },
-  { n: 'README-DEPLOY.md', dir: false, s: 1204, d: '10-22' },
-  { n: 'gateway.log', dir: false, s: 20481, d: '10-22' },
-]
-const humanSize = (b) => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + 'K' : (b / 1048576).toFixed(1) + 'M'
-
-function renderSftp() {
-  const list = el('sftpList')
-  list.replaceChildren()
-  for (const f of DEMO) {
-    const row = document.createElement('div')
-    row.className = 'frow' + (f.dir ? ' dir' : '')
-    const ico = document.createElement('span'); ico.className = 'ico'
-    ico.textContent = f.dir ? '\u25b8' : '\u00b7'
-    const meta = document.createElement('div'); meta.className = 'meta'
-    const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = f.n
-    const sub = document.createElement('div'); sub.className = 'sub2'
-    sub.textContent = f.dir ? (f.d || '') : (humanSize(f.s) + '  \u00b7  ' + (f.d || ''))
-    meta.append(nm, sub)
-    row.append(ico, meta)
-    row.onclick = () => {
-      list.querySelectorAll('.frow').forEach((r) => r.classList.remove('sel'))
-      row.classList.add('sel')
-    }
-    list.appendChild(row)
-  }
-}
-el('sftpRefresh').onclick = renderSftp
-el('sftpUp').onclick = () => {
-  const p = el('sftpPathText').textContent
-  el('sftpPathText').textContent = p.replace(/\/[^/]+$/, '') || '/'
-}
-el('sftpUpload').onclick = () => { statusEl.textContent = '\u4e0a\u4f20\uff1a\u754c\u9762\u5c31\u7eea\uff0c\u5f85\u63a5\u7ebf' }
-el('sftpDownload').onclick = () => { statusEl.textContent = '\u4e0b\u8f7d\uff1a\u754c\u9762\u5c31\u7eea\uff0c\u5f85\u63a5\u7ebf' }
-el('sftpMkdir').onclick = () => { statusEl.textContent = '\u65b0\u5efa\uff1a\u754c\u9762\u5c31\u7eea\uff0c\u5f85\u63a5\u7ebf' }
 
 // ---------------- connection dialog
 let editingId = null
@@ -1204,7 +1160,6 @@ async function boot() {
   }
 
 
-  renderSftp()
   showView('term')
   await loadHosts()
   updateHeads()

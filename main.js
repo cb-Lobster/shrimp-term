@@ -233,6 +233,61 @@ function writeTo(id, text) {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
 
+// ---------------------------------------------------------------- 命令执行
+// 用哨兵判断命令何时结束，而不是"固定 sleep + 抓末尾"：
+//   命令越快返回越快；慢命令不会被截断；能拿到真实退出码。
+const CMD_TIMEOUT_MS = Number(process.env.SHRIMP_CMD_TIMEOUT || 30000)
+const CMD_POLL_MS = 120
+const CMD_OUTPUT_MAX = 6000
+
+function stripAnsi(s) {
+  return String(s)
+    .replace(/\u001b\][^\u0007]*\u0007/g, '')
+    .replace(/\u001b\[[0-9;?]*[ -\/]*[@-~]/g, '')
+    .replace(/\u001b[()][A-Za-z0-9]/g, '')
+    .replace(/\r\n?/g, '\n')
+}
+
+function cleanOutput(raw, echoLine) {
+  const lines = stripAnsi(raw).split('\n')
+  const head = String(echoLine || '').slice(0, 40)
+  while (lines.length && (lines[0].trim() === '' || (head && lines[0].includes(head)))) lines.shift()
+  let text = lines.join('\n').replace(/[ \t]+$/gm, '').replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n').trim()
+  if (text.length > CMD_OUTPUT_MAX) text = '\u2026\uff08\u524d\u90e8\u5df2\u622a\u65ad\uff09\n' + text.slice(-CMD_OUTPUT_MAX)
+  return text
+}
+
+async function runCommand(id, cmd, timeoutMs) {
+  const sess = sessions.get(id)
+  if (!sess) return { ok: false, error: 'session not found', exit_code: null, output: '' }
+
+  const token = '__SHRIMP_DONE_' + Math.random().toString(36).slice(2, 8) + '__'
+  const wrapped = cmd + ' ; printf "\\n' + token + ':%s\\n" "$?"'
+  sess.tail = ''
+  if (!writeTo(id, wrapped + '\n')) return { ok: false, error: 'write failed', exit_code: null, output: '' }
+
+  const deadline = Date.now() + (timeoutMs || CMD_TIMEOUT_MS)
+  while (Date.now() < deadline) {
+    await sleep(CMD_POLL_MS)
+    const idx = sess.tail.indexOf(token)
+    if (idx >= 0) {
+      const m = sess.tail.slice(idx).match(new RegExp(token + ':(\\d+)'))
+      return {
+        ok: true,
+        exit_code: m ? Number(m[1]) : null,
+        output: cleanOutput(sess.tail.slice(0, idx), wrapped),
+      }
+    }
+  }
+  return {
+    ok: false,
+    timeout: true,
+    exit_code: null,
+    output: cleanOutput(sess.tail, wrapped),
+  }
+}
+
+
 // ---------------------------------------------------------------- llm
 function loadKey() {
   if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY
@@ -301,9 +356,11 @@ const TOOL = {
   type: 'function',
   function: {
     name: 'run_in_terminals',
-    description: 'Type a command line into the selected terminal sessions and wait for output. '
-      + 'The user watches this happen live, so keep commands short and safe. '
-      + 'One call = one command line sent to every selected session.',
+    description: 'Type ONE command line into each selected terminal session and wait until it finishes. '
+      + 'Returns, per host: exit_code, timed_out, and the command output (ANSI stripped, tail-kept). '
+      + 'Finish is detected by a sentinel marker, so fast commands return immediately and long ones '
+      + 'are not cut off. Timeout is 30s per command. The user watches every keystroke live, '
+      + 'so keep commands short, idempotent and safe.',
     parameters: {
       type: 'object',
       properties: {
@@ -369,18 +426,19 @@ async function runAgent({ text, targets, history }) {
       try {
         const cmd = String(args.command || '').trim()
         if (!cmd) { messages.push({ role: 'tool', tool_call_id: call.id, content: 'ERROR: empty command' }); continue }
+        const results = []
         for (const id of targets) {
           const sess = sessions.get(id)
-          if (sess) { sess.tail = ''; writeTo(id, cmd + '\n') }
+          if (!sess) { results.push({ host: id, error: 'session not found' }); continue }
+          const r = await runCommand(id, cmd)
+          results.push({
+            host: (sess.host && sess.host.name) || id,
+            exit_code: r.exit_code,
+            timed_out: !!r.timeout,
+            output: r.output || '(no output)',
+          })
         }
-        await sleep(Math.min(4000, 900 + cmd.length * 12))
-        let acc = ''
-        for (const id of targets) {
-          const sess = sessions.get(id)
-          if (!sess) continue
-          acc += '--- ' + ((sess.host && sess.host.name) || id) + ' ---\n' + sess.tail.slice(-1500) + '\n'
-        }
-        out = acc.slice(0, 6000) || '(no output)'
+        out = JSON.stringify(results, null, 2)
         actions.push({ command: cmd, note: String(args.note || '') })
       } catch (e) {
         out = 'ERROR: ' + String((e && e.message) || e)
