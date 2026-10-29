@@ -4,6 +4,21 @@ node_modules/
 # 运行时数据（每人机器上不同，不进仓库）
 settings.json
 history.json
+hosts.json
+
+# 本地凭据与密钥（绝不入库）
+*.pem
+*.key
+*.ppk
+.env
+.env.*
+id_rsa
+id_ed25519
+
+# 打包产物
+dist/
+release/
+data/
 
 # 日志与临时文件
 *.log

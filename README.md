@@ -105,11 +105,20 @@ run_in_terminals(command, note)   ← 往选中的终端里打字，等输出
 
 不在源码里，在安装目录的 `resources/app/` 下：
 
-| 文件 | 内容 |
-|---|---|
-| `hosts.json` | 连接列表 |
-| `settings.json` | 主题、字号、agent API（**API Key 明文存储**） |
-| `history.json` | 所有 agent 对话记忆 |
+| 文件 | 内容 | 是否入库 |
+|---|---|---|
+| `hosts.json` | 连接列表 | **否**（进 `.gitignore`） |
+| `settings.json` | 主题、字号、agent API（**API Key 明文存储**，计划改用 `safeStorage`） | **否** |
+| `history.json` | 所有 agent 对话记忆 | **否** |
+
+首次使用请复制示例配置：
+
+```bash
+cp hosts.example.json hosts.json
+```
+
+> ⚠️ **不要把 `hosts.json` 提交到仓库。** 它包含你的服务器地址、用户名与私钥路径。
+> 示例里的 `203.0.113.10` / `198.51.100.20` 是 RFC 5737 保留的文档示例地址，不是真实主机。
 
 ## 已知问题
 

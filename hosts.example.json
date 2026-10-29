@@ -1,0 +1,25 @@
+{
+  "groups": [
+    "生产环境",
+    "测试环境"
+  ],
+  "hosts": [
+    {
+      "id": "example-1",
+      "name": "示例服务器 · 生产",
+      "host": "203.0.113.10",
+      "port": 22,
+      "user": "deploy",
+      "key": "~/.ssh/id_ed25519",
+      "group": "生产环境"
+    },
+    {
+      "id": "example-2",
+      "name": "示例服务器 · 测试",
+      "host": "198.51.100.20",
+      "port": 22,
+      "user": "ubuntu",
+      "group": "测试环境"
+    }
+  ]
+}
