@@ -27,6 +27,7 @@
     "appId": "dev.cblobster.shrimpterm",
     "productName": "ShrimpTerm",
     "copyright": "MIT (c) cb-Lobster",
+    "asar": false,
     "directories": {
       "output": "dist",
       "buildResources": "assets"
