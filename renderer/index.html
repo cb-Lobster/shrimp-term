@@ -209,8 +209,6 @@
   .tab.dragging { opacity: .35; }
   .tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
   .tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
-  .tab.agentTab { color: var(--agent); }
-  .tab.agentTab.active { background: var(--agent-soft); border-color: #e2d6f7; color: var(--agent); }
 
   #toolbar {
     height: 34px; flex: 0 0 34px; display: flex; align-items: center; gap: 12px; padding: 0 12px;
@@ -240,38 +238,6 @@
   #empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim2); font-size: 12.5px; }
 
   /* ===== big agent page ===== */
-  #agentPage { flex: 1; display: none; flex-direction: column; min-height: 0; background: var(--bg); }
-  #agentPage.active { display: flex; }
-  #agentPage { flex-direction: row; }
-  #convList {
-    width: 176px; flex: 0 0 176px; background: var(--surface); border-right: 1px solid var(--line);
-    display: flex; flex-direction: column; min-height: 0; padding: 8px 6px;
-  }
-  #convNew {
-    display: flex; align-items: center; justify-content: center; gap: 5px;
-    border: 1px dashed var(--line2); background: transparent; color: var(--dim);
-    padding: 7px; border-radius: 7px; font-size: 12px; cursor: pointer; margin-bottom: 6px; flex: 0 0 auto;
-  }
-  #convNew:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-  #convItems { flex: 1; overflow-y: auto; min-height: 0; }
-  .conv {
-    display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 6px;
-    font-size: 12px; color: var(--dim); cursor: pointer; margin-bottom: 1px;
-  }
-  .conv:hover { background: var(--surface3); color: var(--text); }
-  .conv.active { background: var(--agent-soft); color: var(--agent); font-weight: 500; }
-  .conv .ct { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .conv .del { opacity: 0; color: var(--dim2); font-size: 12px; padding: 0 2px; border-radius: 4px; }
-  .conv:hover .del { opacity: 1; }
-  .conv .del:hover { color: var(--warn); background: #fdecea; }
-  #agentMain { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-  #apHead { height: 42px; flex: 0 0 42px; display: flex; align-items: center; gap: 9px; padding: 0 22px; border-bottom: 1px solid var(--line); }
-  #apHead .star { color: var(--agent); font-size: 14px; }
-  #apHead .t { font-size: 13.5px; font-weight: 600; }
-  #apHead .sub { color: var(--dim2); font-size: 11.5px; }
-  #apHead .picked { margin-left: auto; color: var(--dim2); font-size: 11.5px; }
-  #apScroll { flex: 1; overflow-y: auto; min-height: 0; }
-  #apLog { max-width: 740px; margin: 0 auto; padding: 26px 28px 8px; display: flex; flex-direction: column; gap: 14px; }
   .amsg { font-size: 13.5px; line-height: 1.72; white-space: pre-wrap; word-break: break-word; }
   .amsg.intro { color: var(--dim); font-size: 13px; }
   .amsg.intro b { color: var(--text); font-weight: 500; }
@@ -319,31 +285,11 @@
   .amsg a, .msg a { color: var(--accent); text-decoration: none; }
   .amsg a:hover, .msg a:hover { text-decoration: underline; }
 
-  #apComposer { flex: 0 0 auto; padding: 8px 22px 16px; }
-  #apBox {
-    max-width: 740px; margin: 0 auto; display: flex; align-items: flex-end; gap: 10px;
-    background: var(--surface2); border: 1px solid var(--line2); border-radius: 14px; padding: 10px 10px 10px 14px;
-    box-shadow: 0 1px 2px rgba(0,0,0,.03);
-  }
-  #apBox:focus-within { border-color: var(--agent); box-shadow: 0 0 0 3px var(--agent-soft); }
-  #apInput { flex: 1; resize: none; background: transparent; border: 0; outline: none; color: var(--text); font: inherit; font-size: 13.5px; min-height: 24px; max-height: 150px; }
-  #apInput::placeholder { color: var(--dim2); }
-  #apSend { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; border: 0; background: var(--agent); color: #fff; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-  #apSend:disabled { opacity: .3; cursor: default; }
-  #apHint { max-width: 740px; margin: 7px auto 0; color: var(--dim2); font-size: 11px; display: flex; gap: 14px; }
-  #apFoot { max-width: 740px; margin: 9px auto 0; display: flex; gap: 8px; justify-content: center; }
   .pill {
     border: 1px solid var(--line2); background: transparent; color: var(--dim2);
     padding: 4px 12px; border-radius: 14px; font-size: 11.5px; cursor: pointer; transition: all .12s;
   }
   .pill:hover { border-color: var(--agent); color: var(--agent); background: var(--agent-soft); }
-  #convHead {
-    display: flex; align-items: center; height: 24px; padding: 0 4px 0 6px; margin-bottom: 4px;
-    font-size: 10.5px; color: var(--dim2); letter-spacing: .6px; text-transform: uppercase;
-  }
-  #convHead button { margin-left: auto; border: 0; background: transparent; color: var(--dim2); width: 20px; height: 20px; border-radius: 5px; cursor: pointer; font-size: 12px; }
-  #convHead button:hover { background: var(--surface3); color: var(--text); }
-  #convList.hidden { display: none; }
   #convShow { display: none; border: 0; background: transparent; color: var(--dim2); width: 22px; height: 22px; border-radius: 5px; cursor: pointer; font-size: 12px; }
   #convShow:hover { background: var(--surface3); color: var(--text); }
   #convShow.on { display: block; }
@@ -430,15 +376,6 @@
   .dlgfoot button.primary { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
 
   /* agent warning strip */
-  #apWarn {
-    display: none; align-items: center; gap: 10px; padding: 9px 22px;
-    background: #fff8e6; border-bottom: 1px solid #f0e2c0; color: #8a6d2f; font-size: 12px;
-  }
-  #apWarn.on { display: flex; }
-  #apWarn button {
-    margin-left: auto; border: 1px solid #e0c98a; background: #fff; color: #8a6d2f;
-    padding: 3px 11px; border-radius: 6px; font-size: 11.5px; cursor: pointer;
-  }
 
   /* onboarding skip */
   #obSkip {
@@ -556,36 +493,6 @@
 
         <div id="terms"><div id="empty">双击左侧会话开始</div></div>
 
-        <div id="agentPage">
-          <div id="convList">
-            <div id="convHead"><span>对话</span><button id="convHide" title="隐藏对话列表">&#171;</button></div>
-            <button id="convNew"><span>+</span> 新建对话</button>
-            <div id="convItems"></div>
-          </div>
-          <div id="agentMain">
-          <div id="apHead">
-            <button id="convShow" title="显示对话列表">&#187;</button>
-            <span class="star">&#10022;</span>
-            <span class="t">Agent</span>
-            <span class="sub" id="apSub"></span>
-            <span class="picked" id="apPicked"></span>
-            
-          </div>
-          <div id="apWarn">尚未配置 Agent API，agent 不可用。<button id="apWarnBtn">去配置</button></div>
-          <div id="apScroll"><div id="apLog"></div></div>
-          <div id="apComposer">
-            <div id="apBox">
-              <textarea id="apInput" rows="1" placeholder="让它做什么…比如：所有会话里磁盘超 80% 的机器清一下日志"></textarea>
-              <button id="apSend">&#8593;</button>
-            </div>
-            <div id="apHint"><span>能查看本机信息、操作软件、按需联网</span></div>
-            <div id="apFoot">
-              <button class="pill" id="apClear">清空当前对话</button>
-              <button class="pill" id="apApiBtn">Agent API 设置</button>
-            </div>
-          </div>
-          </div>
-        </div>
       </main>
 
       <aside id="right">

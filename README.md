@@ -1,6 +1,6 @@
 # ShrimpTerm
 
-一个带 AI agent 的 SSH 客户端。多标签终端 + 每个连接独立的运维助手 + 一个掌控整个应用的全局助手。
+一个带 AI 助手的 SSH 客户端。多标签终端 + 每个连接独立的运维助手 —— 所有命令都打在你看得见的终端里。
 
 界面参照 MobaXterm / SecureCRT 的思路，agent 参照「能看见它敲什么」的原则 —— 所有命令都打在你看得见的终端里。
 
@@ -15,15 +15,14 @@
 └──┴───────────┴──────────┴────────────────────────┴──────────────┘
 ```
 
-## 三个组成部分
+## 两个组成部分
 
 | | 位置 | 能做什么 | 记忆 |
 |---|---|---|---|
 | **终端** | 标签行 | 真 SSH 会话、多标签拖拽排序、镜像输入、可搜索 | — |
-| **主 Agent** | `✦ Agent` 标签，全屏 | 读本机信息、**完全掌控本应用**（增删改连接/改设置/读终端/读所有对话）、联网 | 多对话，持久化 |
-| **子 Agent** | 右侧「本会话」 | **只能往这一个终端打字** —— 这是唯一能真正操作服务器的 agent | 按连接持久化 |
+| **会话助手** | 右侧「本会话」 | **只能往这一个终端打字** —— 这是唯一能真正操作服务器的通道 | 按连接持久化 |
 
-主 agent 没有本机 shell，这是刻意的限制：它管应用，不管操作系统。
+助手没有任何其他执行通道，这是刻意的限制：它的每一步都发生在你眼前的终端里。
 
 ## 技术栈
 
@@ -36,8 +35,8 @@
 主进程 (Node)
       ├── SSH 连接池        ssh2（纯 JS，无原生模块）
       ├── LLM 调用          OpenAI 兼容 /chat/completions
-      ├── 工具执行          localInfo / appAction / fetchText / writeTo
-      └── 回推动作          app:cmd → 渲染进程执行
+      ├── 工具执行          run_in_terminals → writeTo（只往终端打字）
+      └── 回推输出          term:data → 渲染进程显示
 ```
 
 依赖只有 3 个运行时包：`ssh2`、`iconv-lite`、`@xterm/*`。
@@ -45,12 +44,12 @@
 ## 目录
 
 ```
-main.js              911 行   主进程：SSH 池、agent 循环、工具、设置/主机/记忆读写
-renderer/app.js     1489 行   界面逻辑：终端、标签拖拽、markdown、对话、弹窗、右键菜单
-renderer/index.html  726 行   结构与样式（浅/深两套调色板）
+main.js              549 行   主进程：SSH 池、agent 循环、工具、设置/主机/记忆读写
+renderer/app.js     1213 行   界面逻辑：终端、标签拖拽、markdown、对话、弹窗、右键菜单
+renderer/index.html  633 行   结构与样式（浅/深两套调色板）
 preload.js            43 行   安全桥，暴露 22 个 IPC 通道
 assets/                       🦐 图标（png / 256px / 7 尺寸 ico）
-hosts.json                    连接种子（部署时复制进 app 目录）
+hosts.example.json            连接配置示例（复制为 hosts.json 后使用）
 deploy.ps1                    部署：同步 → 校验 IPC 对齐 → 重启
 ```
 
@@ -82,24 +81,15 @@ API Key    sk-...
 
 ## Agent 工具清单
 
-**主 agent（`app_control`，24 个动作）**
+**只有一个工具。**
 
 ```
-连接   list_hosts / add_host / update_host / delete_host / add_group
-会话   list_sessions / open_host / close_session / focus_session
-       get_session_output / send_to_session / switch_view
-对话   list_conversations / get_conversation
-设置   get_settings / set_theme / set_accent / set_font_size
-       set_terminal_theme / open_settings / new_conversation / clear_conversation
+run_in_terminals(command, note)   ← 往选中的终端里打字，然后等输出
 ```
 
-外加 `local_info`（本机 CPU/内存/磁盘/网络/系统，只读）和 `web_fetch`。
+助手没有任何其他执行通道：不能读本机文件、不能改应用设置、不能直接连服务器。它想做的事，只能以"在这个终端里敲一条命令"的形式发生，而你能看见每一次敲击。
 
-**子 agent（1 个工具）**
-
-```
-run_in_terminals(command, note)   ← 往选中的终端里打字，等输出
-```
+> 早期版本还有一个"全局助手"，能管理连接、改设置、读所有对话。它已被移除：能力面越宽，可解释性越差；而这个产品的价值就在"看得见"。
 
 ## 运行时数据
 

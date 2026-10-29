@@ -9,17 +9,13 @@ contextBridge.exposeInMainWorld('st', {
 
   deleteHost: (id) => ipcRenderer.invoke('hosts:delete', id),
 
-  syncState: (st) => ipcRenderer.invoke('app:state', st),
-
-  onAppCmd: (cb) => ipcRenderer.on('app:cmd', (_e, p) => cb(p)),
-
   settings: () => ipcRenderer.invoke('settings:get'),
 
   histGet: (k) => ipcRenderer.invoke('hist:get', k),
 
   histSave: (k, v) => ipcRenderer.invoke('hist:save', k, v),
 
-  histClear: (k) => ipcRenderer.invoke('hist:clear', k),
+  histClear: (k) => ipcRenderer.invoke('hist:clear', k),
   histList: (h) => ipcRenderer.invoke('hist:list', h),
 
   saveSettings: (s) => ipcRenderer.invoke('settings:save', s),

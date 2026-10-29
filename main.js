@@ -233,273 +233,6 @@ function writeTo(id, text) {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
 
-// ---------------------------------------------------------------- local + app control
-let appState = { hosts: [], tabs: [], view: 'agent', theme: '', terminal: '', fontSize: 0 }
-
-ipcMain.handle('app:state', (_e, st) => { appState = st || appState; return true })
-
-function human(b) {
-  const u = ['B', 'K', 'M', 'G', 'T']
-  let i = 0
-  let v = Number(b) || 0
-  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
-  return v.toFixed(i ? 1 : 0) + u[i]
-}
-
-function localInfo(kind) {
-  const k = String(kind || 'summary').toLowerCase()
-  const cpus = os.cpus()
-  let disk = null
-  try {
-    const st = fs.statfsSync('C:')
-    const total = st.blocks * st.bsize
-    const free = st.bavail * st.bsize
-    disk = { total: human(total), free: human(free), usedPct: Math.round((1 - free / total) * 100) }
-  } catch (e) { disk = { error: 'unavailable' } }
-
-  const base = {
-    hostname: os.hostname(),
-    platform: os.platform() + ' ' + os.release(),
-    arch: os.arch(),
-    uptimeHours: Math.round(os.uptime() / 3600),
-    cpu: cpus.length ? cpus[0].model.trim() : 'unknown',
-    cores: cpus.length,
-    memTotal: human(os.totalmem()),
-    memFree: human(os.freemem()),
-    memUsedPct: Math.round((1 - os.freemem() / os.totalmem()) * 100),
-    disk: disk,
-    user: os.userInfo().username,
-  }
-
-  if (k === 'cpu') return { model: base.cpu, cores: base.cores, loadavg: os.loadavg(), speed: cpus.length ? cpus[0].speed : 0 }
-  if (k === 'memory') return { total: base.memTotal, free: base.memFree, usedPct: base.memUsedPct }
-  if (k === 'disk') return disk
-  if (k === 'os') return { platform: base.platform, arch: base.arch, hostname: base.hostname, user: base.user }
-  if (k === 'uptime') return { hours: base.uptimeHours }
-  if (k === 'network') {
-    const out = {}
-    const ifs = os.networkInterfaces()
-    for (const name of Object.keys(ifs)) {
-      const list = (ifs[name] || []).filter((a) => !a.internal)
-      if (list.length) out[name] = list.map((a) => a.address + '/' + a.family)
-    }
-    return out
-  }
-  return base
-}
-
-function findTabInState(t) {
-  const list = appState.tabs || []
-  return list.find((x) => x.id === t) || list.find((x) => (x.name || '').includes(t)) || null
-}
-
-function listConversations() {
-  const all = readHistoryAll()
-  const out = []
-  const g = all['__agent__']
-  if (g && Array.isArray(g.convs)) {
-    for (const c of g.convs) {
-      out.push({ scope: 'global', id: c.id, title: c.title || '', messages: (c.log || []).length })
-    }
-  }
-  for (const key of Object.keys(all)) {
-    if (key === '__agent__') continue
-    const v = all[key] || {}
-    if (Array.isArray(v.convs)) continue
-    out.push({
-      scope: 'session', key, hostId: v.hostId || key, name: v.name || '',
-      messages: (v.log || []).length, updatedAt: v.updatedAt || 0,
-    })
-  }
-  return out
-}
-
-function readConversation(target) {
-  const all = readHistoryAll()
-  const t = String(target || '')
-  const g = all['__agent__']
-  if (g && Array.isArray(g.convs)) {
-    const c = g.convs.find((x) => x.id === t || (x.title || '') === t)
-    if (c) return { scope: 'global', title: c.title || '', log: c.log || [] }
-  }
-  const key = Object.keys(all).find((k) => {
-    if (k === '__agent__') return false
-    const v = all[k] || {}
-    if (Array.isArray(v.convs)) return false
-    return k === t || (v.hostId || '') === t || (v.name || '') === t
-  })
-  if (key) {
-    const v = all[key]
-    return { scope: 'session', hostId: v.hostId || key, name: v.name || '', log: v.log || [] }
-  }
-  return { error: 'no such conversation: ' + t + '. use list_conversations first.' }
-}
-
-function appAction(action, target, value, data) {
-  const a = String(action || '')
-  const t = String(target || '')
-  const v = String(value || '')
-  const d = (data && typeof data === 'object') ? data : {}
-
-  // ---------- read: connections
-  if (a === 'list_hosts') return { hosts: appState.hosts || [] }
-
-  if (a === 'add_host' || a === 'update_host') {
-    const all = readHostsFile()
-    const list = all.hosts || []
-    const base = {
-      name: String(d.name || d.host || 'new host'),
-      host: String(d.host || ''),
-      port: Number(d.port) || 22,
-      user: String(d.user || 'ubuntu'),
-      group: String(d.group || ''),
-    }
-    if (d.key) base.key = String(d.key)
-    if (d.password) base.password = String(d.password)
-
-    if (a === 'add_host') {
-      if (!base.host) return { error: 'add_host needs data.host' }
-      let id = String(d.id || base.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 12) || ('h' + Date.now().toString(36))
-      let n = 2
-      while (list.some((h) => h.id === id)) { id = id.replace(/-\d+$/, '') + '-' + n; n++ }
-      const rec = Object.assign({ id }, base)
-      rec.name = uniqueName(list, rec.name, rec.id)
-      list.push(rec)
-      all.hosts = list
-      fs.writeFileSync(HOSTS_FILE, JSON.stringify(all, null, 2))
-      send(['refresh_hosts', ''])
-      return { ok: true, created: { id: rec.id, name: rec.name } }
-    }
-
-    const hit = list.find((h) => h.id === t) || list.find((h) => (h.name || '') === t)
-    if (!hit) return { error: 'no such host: ' + t }
-    Object.assign(hit, base)
-    if (d.key) hit.key = String(d.key)
-    if (d.password) hit.password = String(d.password)
-    delete hit.disabled
-    hit.name = uniqueName(list, hit.name, hit.id)
-    all.hosts = list
-    fs.writeFileSync(HOSTS_FILE, JSON.stringify(all, null, 2))
-    send(['refresh_hosts', ''])
-    return { ok: true, updated: { id: hit.id, name: hit.name } }
-  }
-
-  if (a === 'delete_host') {
-    const all = readHostsFile()
-    const list = all.hosts || []
-    const hit = list.find((h) => h.id === t) || list.find((h) => (h.name || '') === t)
-    if (!hit) return { error: 'no such host: ' + t }
-    all.hosts = list.filter((h) => h.id !== hit.id)
-    fs.writeFileSync(HOSTS_FILE, JSON.stringify(all, null, 2))
-    const hist = readHistoryAll()
-    if (hist[hit.id]) { delete hist[hit.id]; writeHistoryAll(hist) }
-    send(['refresh_hosts', ''])
-    return { ok: true, deleted: hit.name }
-  }
-
-  if (a === 'add_group') {
-    const all = readHostsFile()
-    all.groups = all.groups || []
-    const nm = String(d.name || t || '').trim()
-    if (nm && !all.groups.includes(nm)) all.groups.push(nm)
-    fs.writeFileSync(HOSTS_FILE, JSON.stringify(all, null, 2))
-    send(['refresh_hosts', ''])
-    return { ok: true, groups: all.groups }
-  }
-
-  // ---------- sessions
-  if (a === 'list_sessions') return { sessions: appState.tabs || [], view: appState.view }
-
-  if (a === 'open_host') {
-    const hit = (appState.hosts || []).find((h) => h.id === t || h.name === t)
-    if (!hit) return { error: 'no such host: ' + t + '. hosts: ' + (appState.hosts || []).map((h) => h.id + '/' + h.name).join(', ') }
-    if (hit.disabled) return { error: 'host is not configured yet (no address): ' + hit.name }
-    if ((appState.tabs || []).some((x) => x.hostId === hit.id)) {
-      send(['focus_session', (appState.tabs || []).find((x) => x.hostId === hit.id).id])
-      return { ok: true, note: hit.name + ' is already open, focused it' }
-    }
-    send(['open_host', hit.id])
-    return { ok: true, opening: hit.name }
-  }
-
-  if (a === 'close_session' || a === 'focus_session') {
-    const hit = findTabInState(t)
-    if (!hit) return { error: 'no such session: ' + t + '. open: ' + (appState.tabs || []).map((x) => x.name).join(', ') }
-    send([a === 'close_session' ? 'close_session' : 'focus_session', hit.id])
-    return { ok: true, session: hit.name }
-  }
-
-  if (a === 'get_session_output') {
-    const hit = findTabInState(t)
-    const id = hit ? hit.id : t
-    const sess = sessions.get(id)
-    if (!sess) return { error: 'that session is not connected: ' + (hit ? hit.name : t) }
-    return { session: (sess.host && sess.host.name) || id, output: String(sess.tail || '').slice(-6000) || '(no output yet)' }
-  }
-
-  if (a === 'send_to_session') {
-    const hit = findTabInState(t)
-    if (!hit) return { error: 'no such session: ' + t }
-    const sess = sessions.get(hit.id)
-    if (!sess) return { error: 'that session is not connected: ' + hit.name }
-    const text = v.endsWith('\n') ? v : v + '\n'
-    sess.tail = ''
-    sess.stream.write(text)
-    return { ok: true, typed_into: hit.name, text }
-  }
-
-  if (a === 'switch_view') { send(['switch_view', v === 'term' ? 'term' : 'agent']); return { ok: true } }
-
-  // ---------- conversations
-  if (a === 'list_conversations') return { conversations: listConversations() }
-  if (a === 'get_conversation') return readConversation(t || v)
-
-  // ---------- settings
-  if (a === 'get_settings') {
-    const st = readSettings()
-    return {
-      theme: st.theme, terminal: st.terminal, encoding: st.encoding,
-      accent: st.accent, fontSize: st.fontSize,
-      agent: { baseUrl: (st.agent || {}).baseUrl, model: (st.agent || {}).model, hasKey: !!(st.agent || {}).apiKey },
-      sessions: st.sessions || {},
-    }
-  }
-  if (a === 'set_theme') { send(['set_theme', v === 'dark' ? 'dark' : 'light']); return { ok: true } }
-  if (a === 'set_accent') { send(['set_accent', v]); return { ok: true } }
-  if (a === 'set_font_size') { send(['set_font_size', v]); return { ok: true } }
-  if (a === 'set_terminal_theme') { send(['set_terminal_theme', v]); return { ok: true } }
-  if (a === 'open_settings') { send(['open_settings', v || 'appear']); return { ok: true } }
-  if (a === 'new_conversation') { send(['new_conversation', '']); return { ok: true } }
-  if (a === 'clear_conversation') { send(['clear_conversation', '']); return { ok: true } }
-
-  return { error: 'unknown action: ' + a }
-}
-
-function send(payload) {
-  if (win && !win.isDestroyed()) win.webContents.send('app:cmd', { action: payload[0], target: payload[1], value: payload[2] })
-}
-
-function fetchText(url) {
-  return new Promise((resolve, reject) => {
-    const u = new URL(url)
-    if (!/^https?:$/.test(u.protocol)) return reject(new Error('only http(s) allowed'))
-    https.get(u, { timeout: 20000, headers: { 'user-agent': 'ShrimpTerm/1.0' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume()
-        return fetchText(res.headers.location).then(resolve, reject)
-      }
-      let d = ''
-      res.setEncoding('utf8')
-      res.on('data', (c) => {
-        d += c
-        if (d.length > 60000) res.destroy()
-      })
-      res.on('end', () => resolve(d))
-      res.on('close', () => resolve(d))
-    }).on('error', reject).on('timeout', function () { this.destroy(new Error('timeout')) })
-  })
-}
-
 // ---------------------------------------------------------------- llm
 function loadKey() {
   if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY
@@ -582,74 +315,6 @@ const TOOL = {
   },
 }
 
-const T_LOCAL = {
-  type: 'function',
-  function: {
-    name: 'local_info',
-    description: 'Read basic information about the computer ShrimpTerm is running on. Read-only, no shell.',
-    parameters: {
-      type: 'object',
-      properties: { kind: { type: 'string', enum: ['summary', 'cpu', 'memory', 'disk', 'os', 'uptime', 'network'] } },
-      required: ['kind'],
-    },
-  },
-}
-
-const T_APP = {
-  type: 'function',
-  function: {
-    name: 'app_control',
-    description: 'Full control over the ShrimpTerm application. You may read and change anything the app '
-      + 'itself holds: connections, groups, settings, open sessions, terminal output, and every agent '
-      + 'conversation. You still have NO shell on this computer.',
-    parameters: {
-      type: 'object',
-      properties: {
-        action: {
-          type: 'string',
-          enum: [
-            'list_hosts', 'add_host', 'update_host', 'delete_host', 'add_group',
-            'list_sessions', 'open_host', 'close_session', 'focus_session', 'switch_view',
-            'get_session_output', 'send_to_session',
-            'list_conversations', 'get_conversation',
-            'get_settings', 'set_theme', 'set_accent', 'set_font_size', 'set_terminal_theme',
-            'open_settings', 'new_conversation', 'clear_conversation',
-          ],
-        },
-        target: { type: 'string', description: 'host id/name, session id/name, conversation id/title/host, or settings tab' },
-        value: { type: 'string', description: 'theme name, hex color, font size, view name, or text to type' },
-        data: {
-          type: 'object',
-          description: 'for add_host/update_host: {name, host, port, user, key, password, group}; for add_group: {name}',
-        },
-      },
-      required: ['action'],
-    },
-  },
-}
-
-const T_WEB = {
-  type: 'function',
-  function: {
-    name: 'web_fetch',
-    description: 'Fetch an http(s) URL and return its body as text (truncated). Use for docs, versions, changelogs.',
-    parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
-  },
-}
-
-const MAIN_SYS = 'You are ShrimpTerm\'s built-in assistant. You live inside an SSH client application.\n'
-  + 'Your permissions cover this whole application, plus basic read-only facts about the machine it runs on. You can:\n'
-  + '1. local_info - read basic facts about this computer (read-only; you cannot run commands).\n'
-  + '2. app_control - you own this application. You can list, add, edit and delete connections and '
-  + 'groups; open, close and focus sessions; read what a terminal currently shows; type into a session; '
-  + 'read every agent conversation (global and per-session); change theme, accent, font size and terminal '
-  + 'palette; open settings; create or clear agent conversations.\n'
-  + '3. web_fetch - fetch an http(s) page when you need current information. Networking is always on.\n\n'
-  + 'You have NO shell on this machine and cannot read arbitrary files. Never pretend otherwise.\n'
-  + 'Be concrete: inspect before you act, then act through the tools. Answer in the language the user used.\n\n'
-  + 'Formatting: the UI renders markdown. Use a table when comparing several items, keep tables to 5 columns '
-  + 'or fewer, one row per line, header row then a |---|---| separator, no blank lines inside a table. '
-  + 'Wrap commands or paths in fenced code blocks. Keep prose brief.'
 
 const SUB_SYS = 'You are shrimp, an operations agent embedded in an SSH client.\n'
   + 'You can ONLY act through the run_in_terminals tool, which types a command into the terminal sessions '
@@ -666,25 +331,22 @@ const SUB_SYS = 'You are shrimp, an operations agent embedded in an SSH client.\
   + '- Wrap commands and raw output in fenced code blocks.\n'
   + '- Keep prose to one or two sentences; put the detail in the table.'
 
-async function runAgent({ text, targets, history, scope }) {
+async function runAgent({ text, targets, history }) {
   const cfg = readSettings().agent || {}
   const key = cfg.apiKey || loadKey()
   if (!key) return { error: '\u5c1a\u672a\u914d\u7f6e agent API key\uff0c\u8bf7\u5230\u8bbe\u7f6e\u91cc\u586b\u5199\u3002' }
   const baseUrl = String(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')
   const model = cfg.model || 'deepseek-flash'
 
-  const isMain = scope === 'global'
+  if (!targets || !targets.length) return { error: 'No terminal selected.' }
 
-  if (!isMain && (!targets || !targets.length)) return { error: 'No terminal selected.' }
-
-  const tools = isMain ? [T_LOCAL, T_APP, T_WEB] : [TOOL]
-
-  const messages = [{ role: 'system', content: isMain ? MAIN_SYS : SUB_SYS }]
+  const tools = [TOOL]
+  const messages = [{ role: 'system', content: SUB_SYS }]
   if (history && history.length) messages.push(...history.slice(-8))
   messages.push({ role: 'user', content: text })
 
   const actions = []
-  const maxRounds = isMain ? 8 : 6
+  const maxRounds = 6
 
   for (let round = 0; round < maxRounds; round++) {
     const res = await postJson(baseUrl + '/chat/completions', {
@@ -703,50 +365,26 @@ async function runAgent({ text, targets, history, scope }) {
     for (const call of calls) {
       let args = {}
       try { args = JSON.parse(call.function.arguments || '{}') } catch (e) {}
-      const name = call.function.name
       let out = ''
-
       try {
-        if (name === 'local_info') {
-          out = JSON.stringify(localInfo(args.kind), null, 2)
-          actions.push({ command: 'local_info(' + (args.kind || 'summary') + ')', note: '' })
-
-        } else if (name === 'app_control') {
-          const r = appAction(args.action, args.target, args.value, args.data)
-          out = JSON.stringify(r, null, 2)
-          actions.push({
-            command: 'app:' + args.action + (args.target ? ' ' + args.target : '') + (args.value ? ' ' + args.value : ''),
-            note: r && r.error ? r.error : '',
-          })
-          await sleep(250)
-
-        } else if (name === 'web_fetch') {
-          const body = await fetchText(String(args.url || ''))
-          out = String(body).slice(0, 8000)
-          actions.push({ command: 'web_fetch ' + String(args.url || '').slice(0, 80), note: '' })
-
-        } else {
-          // per-session tool: type into terminals
-          const cmd = String(args.command || '').trim()
-          if (!cmd) { messages.push({ role: 'tool', tool_call_id: call.id, content: 'ERROR: empty command' }); continue }
-          for (const id of targets) {
-            const sess = sessions.get(id)
-            if (sess) { sess.tail = ''; writeTo(id, cmd + '\n') }
-          }
-          await sleep(Math.min(4000, 900 + cmd.length * 12))
-          let acc = ''
-          for (const id of targets) {
-            const sess = sessions.get(id)
-            if (!sess) continue
-            acc += '--- ' + ((sess.host && sess.host.name) || id) + ' ---\n' + sess.tail.slice(-1500) + '\n'
-          }
-          out = acc.slice(0, 6000) || '(no output)'
-          actions.push({ command: cmd, note: String(args.note || '') })
+        const cmd = String(args.command || '').trim()
+        if (!cmd) { messages.push({ role: 'tool', tool_call_id: call.id, content: 'ERROR: empty command' }); continue }
+        for (const id of targets) {
+          const sess = sessions.get(id)
+          if (sess) { sess.tail = ''; writeTo(id, cmd + '\n') }
         }
+        await sleep(Math.min(4000, 900 + cmd.length * 12))
+        let acc = ''
+        for (const id of targets) {
+          const sess = sessions.get(id)
+          if (!sess) continue
+          acc += '--- ' + ((sess.host && sess.host.name) || id) + ' ---\n' + sess.tail.slice(-1500) + '\n'
+        }
+        out = acc.slice(0, 6000) || '(no output)'
+        actions.push({ command: cmd, note: String(args.note || '') })
       } catch (e) {
         out = 'ERROR: ' + String((e && e.message) || e)
       }
-
       messages.push({ role: 'tool', tool_call_id: call.id, content: String(out).slice(0, 9000) || '(empty)' })
     }
   }

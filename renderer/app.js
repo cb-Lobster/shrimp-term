@@ -19,13 +19,11 @@ const statusEl = el('status')
 
 const tabs = []
 let activeId = null
-let view = 'agent'        // 'agent' | 'term'
+let view = 'term'           // 只剩终端视图
 let fontSize = 12.5
-let agentBusy = false
 let subBusy = false
 
 const AGENT_TAB = '__agent__'
-const agentStore = { convs: [], activeId: null }
 
 const TERM_THEMES = {
   dark: {
@@ -70,7 +68,6 @@ function termTheme() { return TERM_THEMES[termThemeName] || TERM_THEMES.dark }
 
 const tabById = (id) => tabs.find((t) => t.id === id)
 
-const AGENT_MEM_KEY = '__agent__'
 function persistAgent(key, state, meta) {
   if (!key || !state || typeof window.st.histSave !== 'function') return
   try {
@@ -103,27 +100,19 @@ document.querySelectorAll('.railbtn[data-panel]').forEach((b) => {
     document.querySelectorAll('.railbtn').forEach((x) => x.classList.toggle('active', x === b))
     document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('active', p.id === 'pane-' + name))
     setPanelVisible(true)
-    if (view === 'agent') showView('term')
   }
 })
 
 // ---------------- view switching
 function showView(v) {
-  view = v
-  const isAgent = v === 'agent'
-  el('agentPage').classList.toggle('active', isAgent)
-  termsEl.style.display = isAgent ? 'none' : ''
-  el('toolbar').style.display = isAgent ? 'none' : ''
-  el('right').classList.toggle('hidden', isAgent || rightHiddenByUser)
+  view = 'term'
+  termsEl.style.display = ''
+  el('toolbar').style.display = ''
+  el('right').classList.toggle('hidden', rightHiddenByUser)
   renderTabRow()
-  if (isAgent) {
-    renderBigAgent()
-    el('apInput').focus()
-  } else {
-    renderSub()
-    const t = tabById(activeId)
-    if (t) requestAnimationFrame(() => { try { t.fit.fit() } catch (e) {} t.term.focus() })
-  }
+  renderSub()
+  const t = tabById(activeId)
+  if (t) requestAnimationFrame(() => { try { t.fit.fit() } catch (e) {} t.term.focus() })
   updateHeads()
 }
 
@@ -131,7 +120,6 @@ function updateHeads() {
   const t = tabById(activeId)
   el('subTarget').textContent = t ? t.name : '未连接'
   el('subSend').disabled = subBusy || !t || !hasApi()
-  if (typeof refreshApiState === 'function') refreshApiState()
 }
 
 function hasApi() { return !!(settings.agent && settings.agent.apiKey) }
@@ -361,7 +349,6 @@ function createTab(id, host, ov, saved, failMsg, pendingMsg) {
   requestAnimationFrame(() => { try { fit.fit() } catch (e) {} })
   renderTabRow()
   updateHeads()
-  syncState()
   term.focus()
   return tab
 }
@@ -378,14 +365,6 @@ function selectTerm(id) {
 function renderTabRow() {
   tabRow.replaceChildren()
 
-  // the big agent tab, first, like a pinned page
-  const a = document.createElement('div')
-  a.className = 'tab agentTab' + (view === 'agent' ? ' active' : '')
-  const star = document.createElement('span'); star.textContent = '\u2726'
-  const an = document.createElement('span'); an.textContent = 'Agent'
-  a.append(star, an)
-  a.onclick = () => showView('agent')
-  tabRow.appendChild(a)
 
   for (const t of tabs) {
     const d = document.createElement('div')
@@ -453,7 +432,6 @@ function moveTab(fromId, toId, after) {
   if (after) idx += 1
   tabs.splice(idx, 0, item)
   renderTabRow()
-  syncState()
 }
 
 function closeTab(id) {
@@ -468,12 +446,10 @@ function closeTab(id) {
     activeId = next ? next.id : null
     if (!next) {
       emptyEl.style.display = 'flex'
-      if (view === 'term') showView('agent')
     }
   }
   renderTabRow()
   updateHeads()
-  syncState()
 }
 
 window.addEventListener('resize', () => {
@@ -772,165 +748,6 @@ function fillMsg(node, cls, text) {
   else node.textContent = text
 }
 
-// ---------------- big agent: multiple conversations
-let convSeq = 0
-function newConvId() { return 'c' + Date.now().toString(36) + (++convSeq) }
-function makeConv(title) { return { id: newConvId(), title: title || '\u65b0\u5bf9\u8bdd', log: [], history: [], createdAt: Date.now() } }
-
-function activeConv() {
-  if (!agentStore.convs.length) {
-    const c = makeConv()
-    agentStore.convs.push(c)
-    agentStore.activeId = c.id
-  }
-  let c = agentStore.convs.find((x) => x.id === agentStore.activeId)
-  if (!c) { c = agentStore.convs[agentStore.convs.length - 1]; agentStore.activeId = c.id }
-  return c
-}
-
-function renderConvList() {
-  const box = el('convItems')
-  box.replaceChildren()
-  for (const c of agentStore.convs) {
-    const d = document.createElement('div')
-    d.className = 'conv' + (c.id === agentStore.activeId ? ' active' : '')
-    const t = document.createElement('span')
-    t.className = 'ct'
-    t.textContent = c.title || '\u65b0\u5bf9\u8bdd'
-    t.title = c.title || ''
-    const x = document.createElement('span')
-    x.className = 'del'
-    x.textContent = '\u00d7'
-    x.onclick = (ev) => { ev.stopPropagation(); deleteConv(c.id) }
-    d.append(t, x)
-    d.onclick = () => {
-      agentStore.activeId = c.id
-      renderBigAgent()
-      persistAgent(AGENT_MEM_KEY, agentStore)
-    }
-    box.appendChild(d)
-  }
-}
-
-function deleteConv(id) {
-  const i = agentStore.convs.findIndex((c) => c.id === id)
-  if (i < 0) return
-  agentStore.convs.splice(i, 1)
-  if (agentStore.activeId === id) {
-    agentStore.activeId = agentStore.convs.length ? agentStore.convs[Math.max(0, i - 1)].id : null
-  }
-  activeConv()
-  renderBigAgent()
-  persistAgent(AGENT_MEM_KEY, agentStore)
-}
-
-function renderBigAgent() {
-  const c = activeConv()
-  renderConvList()
-  const box = el('apLog')
-  box.replaceChildren()
-  if (!c.log.length) {
-    c.log.push({
-      cls: 'intro',
-      text: '\u6211\u662f\u8fd0\u7ef4 agent\u3002\u53ef\u4ee5\u64cd\u4f5c\u4f60\u6253\u5f00\u7684\u6240\u6709\u4f1a\u8bdd\uff0c\u4e5f\u80fd\u6307\u5b9a\u5176\u4e2d\u51e0\u4e2a\u3002\n\u6bd4\u5982\uff1a\u300c\u770b\u770b\u6240\u6709\u673a\u5668\u7684\u78c1\u76d8\uff0c\u7528\u8868\u683c\u7ed9\u6211\u300d\u3002',
-    })
-  }
-  for (const m of c.log) {
-    const d = document.createElement('div')
-    d.className = 'amsg ' + m.cls
-    fillMsg(d, m.cls, m.text)
-    box.appendChild(d)
-  }
-  el('apScroll').scrollTop = el('apScroll').scrollHeight
-}
-
-function pushBig(cls, text) {
-  const c = activeConv()
-  c.log.push({ cls, text })
-  persistAgent(AGENT_MEM_KEY, agentStore)
-  if (view === 'agent') renderBigAgent()
-}
-
-async function askBig() {
-  const input = el('apInput')
-  const text = input.value.trim()
-  if (!text || agentBusy) return
-  if (!hasApi()) {
-    pushBig('err', '\u5c1a\u672a\u914d\u7f6e Agent API\uff0cagent \u4e0d\u53ef\u7528\u3002\u70b9\u53f3\u4e0a\u89d2\u300cAgent API\u300d\u6216\u5de6\u4fa7\u9f7f\u8f6e\u914d\u7f6e\u3002')
-    openGlobal('api')
-    return
-  }
-  const targets = tabs.map((t) => t.id)
-
-  const c = activeConv()
-  if (!c.history.length) c.title = text.slice(0, 20)
-
-  agentBusy = true
-  updateHeads()
-  input.value = ''
-  input.style.height = 'auto'
-  c.log.push({ cls: 'me', text })
-  const thinking = { cls: 'thinking', text: '\u601d\u8003\u4e2d\u2026' }
-  c.log.push(thinking)
-  if (view === 'agent') renderBigAgent()
-  persistAgent(AGENT_MEM_KEY, agentStore)
-
-  try {
-    const res = await window.st.ask({ text, targets, history: c.history, scope: 'global' })
-    const i = c.log.indexOf(thinking)
-    if (i >= 0) c.log.splice(i, 1)
-    if (res.error) c.log.push({ cls: 'err', text: res.error })
-    else {
-      for (const a of res.actions || []) c.log.push({ cls: 'act', text: '$ ' + a.command + (a.note ? '\n  ' + a.note : '') })
-      if (res.reply) {
-        c.log.push({ cls: 'bot', text: res.reply })
-        c.history.push({ role: 'user', content: text })
-        c.history.push({ role: 'assistant', content: res.reply })
-      }
-    }
-  } catch (e) {
-    const i = c.log.indexOf(thinking)
-    if (i >= 0) c.log.splice(i, 1)
-    c.log.push({ cls: 'err', text: String(e && e.message ? e.message : e) })
-  } finally {
-    agentBusy = false
-    updateHeads()
-    persistAgent(AGENT_MEM_KEY, agentStore)
-    if (view === 'agent') renderBigAgent()
-    input.focus()
-  }
-}
-
-el('convNew').onclick = () => {
-  const c = makeConv()
-  agentStore.convs.push(c)
-  agentStore.activeId = c.id
-  renderBigAgent()
-  persistAgent(AGENT_MEM_KEY, agentStore)
-  el('apInput').focus()
-}
-
-el('apClear').onclick = () => {
-  const c = activeConv()
-  c.log = []
-  c.history = []
-  c.title = '\u65b0\u5bf9\u8bdd'
-  renderBigAgent()
-  persistAgent(AGENT_MEM_KEY, agentStore)
-  statusEl.textContent = '\u5df2\u6e05\u7a7a\u5f53\u524d\u5bf9\u8bdd'
-  setTimeout(() => { statusEl.textContent = '' }, 1800)
-}
-
-el('apSend').onclick = askBig
-el('apInput').addEventListener('input', (ev) => {
-  const t = ev.target
-  t.style.height = 'auto'
-  t.style.height = Math.min(t.scrollHeight, 150) + 'px'
-})
-el('apInput').addEventListener('keydown', (ev) => {
-  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); askBig() }
-})
-
 // ---------------- per-session sub agent
 function renderSub() {
   const box = el('subLog')
@@ -1017,13 +834,6 @@ function applyTheme() {
   }
 }
 
-function refreshApiState() {
-  const ok = hasApi()
-  el('apWarn').classList.toggle('on', !ok)
-  el('apSend').disabled = agentBusy || !ok
-  el('apInput').placeholder = ok ? '让它做什么…比如：所有会话里磁盘超 80% 的机器清一下日志' : '需要先配置 Agent API'
-  el('apSub').textContent = ok ? ('全局 · 可操作 ' + tabs.length + ' 个会话') : '未配置 API'
-}
 
 // --- global dialog
 function openGlobal(tab) {
@@ -1093,7 +903,6 @@ el('gSave').onclick = async () => {
     return
   }
   el('gset').classList.remove('on')
-  refreshApiState()
   updateHeads()
 }
 document.querySelectorAll('[data-close]').forEach((x) => {
@@ -1114,7 +923,7 @@ function setPanelVisible(v) {
   }
 }
 function setRightVisible(v) {
-  el('right').classList.toggle('hidden', !v || view === 'agent')
+  el('right').classList.toggle('hidden', !v)
   rightHiddenByUser = !v
   if (v) {
     const t = tabById(activeId)
@@ -1124,17 +933,8 @@ function setRightVisible(v) {
 let rightHiddenByUser = false
 el('panelHide').onclick = () => setPanelVisible(false)
 
-// ---------------- conversation list visibility
-function setConvVisible(v) {
-  el('convList').classList.toggle('hidden', !v)
-  el('convShow').classList.toggle('on', !v)
-}
-el('convHide').onclick = () => setConvVisible(false)
-el('convShow').onclick = () => setConvVisible(true)
 el('subHide').onclick = () => setRightVisible(false)
 el('btnSubToggle').onclick = () => setRightVisible(el('right').classList.contains('hidden'))
-el('apApiBtn').onclick = () => openGlobal('api')
-el('apWarnBtn').onclick = () => openGlobal('api')
 
 // --- session dialog
 function openSessionSettings(hostId) {
@@ -1213,14 +1013,11 @@ el('obGo').onclick = async () => {
     return
   }
   el('onboard').classList.remove('on')
-  refreshApiState()
-  el('apInput').focus()
 }
 el('obSkip').onclick = async () => {
   settings.onboarded = true
   try { await window.st.saveSettings(settings) } catch (e) {}
   el('onboard').classList.remove('on')
-  refreshApiState()
   statusEl.textContent = '未配置 Agent API，终端可用'
 }
 
@@ -1365,69 +1162,6 @@ async function openMemSel() {
 }
 el('subHist').onclick = openMemSel
 
-// ---------------- state sync (lets the main agent see what exists)
-function syncState() {
-  if (typeof window.st.syncState !== 'function') return
-  try {
-    window.st.syncState({
-      hosts: (allHosts || []).map((h) => ({ id: h.id, name: h.name, group: h.group || '', disabled: !!h.disabled })),
-      tabs: tabs.map((x) => ({ id: x.id, name: x.name, hostId: x.hostId })),
-      view,
-      theme: settings.theme,
-      terminal: settings.terminal,
-      fontSize,
-    })
-  } catch (e) {}
-}
-
-// ---------------- commands issued by the main agent
-if (typeof window.st.onAppCmd === 'function') {
-  window.st.onAppCmd(async (p) => {
-    const { action, target, value } = p || {}
-    try {
-      if (action === 'open_host') {
-        const h = (allHosts || []).find((x) => x.id === target)
-        if (h && !h.disabled) await openHost(h)
-      } else if (action === 'close_session') {
-        closeTab(target)
-      } else if (action === 'focus_session') {
-        if (tabById(target)) selectTerm(target)
-      } else if (action === 'switch_view') {
-        showView(value === 'term' ? 'term' : 'agent')
-      } else if (action === 'set_theme') {
-        settings.theme = value === 'dark' ? 'dark' : 'light'
-        applyTheme()
-      } else if (action === 'set_accent') {
-        if (/^#[0-9a-f]{6}$/i.test(String(value))) { settings.accent = value; applyTheme() }
-      } else if (action === 'set_font_size') {
-        const n = Number(value)
-        if (n >= 9 && n <= 20) { settings.fontSize = n; fontSize = n; applyFont() }
-      } else if (action === 'set_terminal_theme') {
-        if (TERM_THEMES[value]) { settings.terminal = value; applyTheme() }
-      } else if (action === 'open_settings') {
-        openGlobal(value || 'appear')
-      } else if (action === 'new_conversation') {
-        const c = makeConv()
-        agentStore.convs.push(c)
-        agentStore.activeId = c.id
-        showView('agent')
-        renderBigAgent()
-        persistAgent(AGENT_MEM_KEY, agentStore)
-      } else if (action === 'clear_conversation') {
-        const c = activeConv()
-        c.log = []; c.history = []; c.title = '\u65b0\u5bf9\u8bdd'
-        renderBigAgent()
-        persistAgent(AGENT_MEM_KEY, agentStore)
-      } else if (action === 'send_to_session') {
-        if (target && value) window.st.input(target, value)
-      } else if (action === 'refresh_hosts') {
-        await loadHosts()
-      }
-      try { await window.st.saveSettings(settings) } catch (e) {}
-      syncState()
-    } catch (e) {}
-  })
-}
 
 // ---------------- delete a connection
 let delArmed = false
@@ -1461,7 +1195,6 @@ async function boot() {
   fontSize = Number(settings.fontSize) || 12.5
   el('fontVal').textContent = String(fontSize)
   applyTheme()
-  refreshApiState()
 
   if (!settings.onboarded) {
     el('obBase').value = (settings.agent && settings.agent.baseUrl) || 'https://api.deepseek.com/v1'
@@ -1470,20 +1203,11 @@ async function boot() {
     el('onboard').classList.add('on')
   }
 
-  try {
-    const h = await window.st.histGet('__agent__')
-    if (h && Array.isArray(h.convs) && h.convs.length) {
-      agentStore.convs = h.convs
-      agentStore.activeId = h.activeId || h.convs[h.convs.length - 1].id
-    }
-  } catch (e) {}
 
   renderSftp()
-  showView('agent')
+  showView('term')
   await loadHosts()
   updateHeads()
-  syncState()
-  el('apInput').focus()
 }
 
 boot()
