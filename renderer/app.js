@@ -119,6 +119,10 @@ function showView(v) {
 function updateHeads() {
   const t = tabById(activeId)
   el('subTarget').textContent = t ? t.name : '未连接'
+  // 当前作用对象写进「新会话」的 tooltip，避免少了机器名之后不知道在对谁说话
+  el('subNew').title = t
+    ? '当前会话：' + t.name + '　清空助手的对话与上下文，重新开始'
+    : '先双击左侧会话连上机器'
   // 只在“正在发送”时禁用；其余情况保持可点，点了给明确提示，而不是静默无反应
   el('subSend').disabled = subBusy
   const why = !hasApi() ? '先到「设置 → Agent API」填 Key' : (!t ? '先双击左侧会话连上机器' : '')
@@ -1137,6 +1141,39 @@ async function openMemSel() {
   el('memsel').classList.add('on')
 }
 el('subHist').onclick = openMemSel
+
+// --- 新会话：清空当前会话的对话与上下文（两次点击确认，防误清）
+let subNewArmed = null   // 记录“已确认的是哪个会话”，避免切换会话后误清
+let subNewTimer = null
+function disarmSubNew() {
+  subNewArmed = null
+  clearTimeout(subNewTimer)
+  const b = el('subNew')
+  b.classList.remove('armed')
+  b.textContent = '新会话'
+}
+el('subNew').onclick = () => {
+  const t = tabById(activeId)
+  if (!t) { statusEl.textContent = '先双击左侧会话连上机器，助手才有作用对象'; return }
+  if (subNewArmed !== t.id) {
+    subNewArmed = t.id
+    const b = el('subNew')
+    b.classList.add('armed')
+    b.textContent = '确认清空？'
+    statusEl.textContent = '再点一次确认：将清空「' + t.name + '」的助手对话与上下文（终端连接不受影响）'
+    clearTimeout(subNewTimer)
+    subNewTimer = setTimeout(disarmSubNew, 4000)
+    return
+  }
+  disarmSubNew()
+  t.agent.log = []
+  t.agent.history = []
+  persistTabAgent(t)
+  renderSub()
+  updateHeads()
+  statusEl.textContent = '已开始新会话：助手上下文已清空，终端保持连接'
+  el('subInput').focus()
+}
 
 
 // ---------------- delete a connection
