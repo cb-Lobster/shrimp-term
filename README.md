@@ -53,6 +53,11 @@ hosts.example.json            连接配置示例（复制为 hosts.json 后使�
 deploy.ps1                    部署：同步 → 校验 IPC 对齐 → 重启
 ```
 
+## 工程约定
+
+提交前跑 `npm run check`（语法 + 回归用例 + IPC 对齐 + 敏感残留），需要更新桌面版再跑 `npm run ship`。
+十条红线见 [agent.md §0.6](agent.md)。
+
 ## 开发与部署
 
 ```powershell
