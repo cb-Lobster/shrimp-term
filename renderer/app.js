@@ -377,6 +377,7 @@ async function openHost(host) {
       tab.agent = normalizeAgent(saved, tab.name)
     }
     await mergeLegacyConvs(tab)
+    pruneEmptyConvs(tab)   // 清掉历史遗留的空对话
     renderSub()
 
     const { id } = await window.st.open(host.id, { encoding: ov.encoding || settings.encoding || 'utf-8' })
@@ -1304,10 +1305,27 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && el('cfm').classList.contains('on')) { ev.preventDefault(); closeConfirm() }
 })
 
+// 清理空对话：只保留“当前这段”和有内容的对话，避免点几次新会话就堆几个空壳
+function pruneEmptyConvs(t) {
+  const a = t.agent
+  if (!a || !Array.isArray(a.convs)) return 0
+  const before = a.convs.length
+  a.convs = a.convs.filter((c) => c.id === a.activeId || (c.log && c.log.length) || (c.history && c.history.length))
+  if (!a.convs.length) {
+    const c = newConvObj()
+    a.convs.push(c)
+    a.activeId = c.id
+  } else if (!a.convs.some((c) => c.id === a.activeId)) {
+    a.activeId = a.convs[a.convs.length - 1].id
+  }
+  return before - a.convs.length
+}
+
 // --- 新会话：新建一段对话，旧的原样保留；有内容时先确认，避免误触
 function createNewConv(t) {
-  const c = newConvObj()
   t.agent = t.agent && Array.isArray(t.agent.convs) ? t.agent : normalizeAgent(t.agent, t.name)
+  pruneEmptyConvs(t)
+  const c = newConvObj()
   t.agent.convs.push(c)
   t.agent.activeId = c.id
   el('subInput').value = ''
@@ -1321,16 +1339,13 @@ el('subNew').onclick = () => {
   const t = tabById(activeId)
   if (!t) { statusEl.textContent = '先双击左侧会话连上机器，助手才有作用对象'; return }
   const conv = activeConv(t)
-  const hasContent = (conv.log || []).some((m) => m.cls === 'me')
-  if (!hasContent) {
-    // 当前就是一段空对话，再新建没有意义——直接说清，不要“闪一下”
-    statusEl.textContent = '当前已经是新对话了，先问一句再用「新会话」'
-    el('subInput').focus()
-    return
-  }
+  const msgs = (conv.log || []).filter((m) => m.cls === 'me')
+  const empty = !msgs.length
   confirmDialog(
     '新建会话',
-    '当前这段对话「' + (conv.title || '新对话') + '」不会删除，会保留在「历史会话」里，随时可以切回。\n\n要新建一段对话吗？',
+    empty
+      ? '当前这段对话还没有内容。\n\n要新建一段新的对话吗？'
+      : '当前这段对话「' + (conv.title || '新对话') + '」不会删除，会保留在「历史会话」里，随时可以切回。\n\n要新建一段对话吗？',
     '新建',
     () => createNewConv(t)
   )
