@@ -151,6 +151,9 @@ function activeConv(tab) {
 
 function persistTabAgent(tab) {
   if (!tab.memKey || typeof window.st.histSave !== 'function') return
+  // 关键：历史还没加载完就保存，会用“空对话”覆盖掉磁盘上的真实记录。
+  // 事故：新建标签 → renderSub → 保存空状态 → 再 histGet 读回来已是空的，重启必丢。
+  if (!tab.historyLoaded) return
   const c = activeConv(tab)
   const count = tab.agent.convs.reduce((n, x) => n + (x.log ? x.log.length : 0), 0)
   try {
@@ -378,6 +381,8 @@ async function openHost(host) {
     }
     await mergeLegacyConvs(tab)
     pruneEmptyConvs(tab)   // 清掉历史遗留的空对话
+    tab.historyLoaded = true
+    persistTabAgent(tab)
     renderSub()
 
     const { id } = await window.st.open(host.id, { encoding: ov.encoding || settings.encoding || 'utf-8' })
@@ -404,6 +409,7 @@ async function openHost(host) {
     writeFailBanner(tab.term, host, ov, msg)
     markFailed(host.id, msg)
     statusEl.textContent = '连接失败: ' + msg
+    tab.historyLoaded = true
     renderTabRow()
   } finally {
     host.__connecting = false
@@ -451,6 +457,7 @@ function createTab(id, host, ov, saved, failMsg, pendingMsg) {
     pending: !!pendingMsg,
     failed: !!failMsg,
     memKey: host.id,
+    historyLoaded: false,   // 历史加载完成后才允许保存
     agent: normalizeAgent(saved, host.name || host.id),
   }
   tabs.push(tab)
@@ -850,7 +857,6 @@ function renderSub() {
     box.appendChild(d)
   }
   box.scrollTop = box.scrollHeight
-  persistTabAgent(t)
 }
 
 async function askSub() {

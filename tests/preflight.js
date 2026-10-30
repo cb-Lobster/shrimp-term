@@ -161,6 +161,25 @@ step('确认框层级高于普通弹窗', () => {
   return '#cfm ' + cfm[1] + ' > .ovl ' + (ovl ? ovl[1] : '?')
 })
 
+// 10. 保存必须在历史加载之后
+//    事故：新建标签 → renderSub 触发保存 → 空对话覆盖磁盘上的历史 →
+//    随后 histGet 读回已被清空的记录，每次启动都丢一遍。
+step('保存受 historyLoaded 守卫', () => {
+  const app = fs.readFileSync(rel(path.join('renderer', 'app.js')), 'utf8')
+  const i = app.indexOf('function persistTabAgent(')
+  if (i < 0) throw new Error('找不到 persistTabAgent')
+  const head = app.slice(i, i + 600)
+  if (!head.includes('historyLoaded')) {
+    throw new Error('persistTabAgent 缺少 historyLoaded 守卫 —— 会在历史加载前用空数据覆盖磁盘')
+  }
+  const rs = app.indexOf('function renderSub(')
+  const re = app.indexOf('\n}\n', rs)
+  if (rs >= 0 && re > rs && app.slice(rs, re).includes('persistTabAgent')) {
+    throw new Error('renderSub 里不应保存 —— 渲染不代表数据变了')
+  }
+  return 'persistTabAgent 有守卫，renderSub 不落盘'
+})
+
 // 输出
 console.log('')
 for (const r of results) {
