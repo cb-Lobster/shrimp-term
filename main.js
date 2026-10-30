@@ -19,12 +19,38 @@ const iconv = require('iconv-lite')
 
 app.setName('ShrimpTerm')
 const DIR = __dirname
-const HOSTS_FILE = path.join(DIR, 'hosts.json')
+
+// ---------------------------------------------------------------- 数据目录
+// 运行时数据放系统用户目录（%APPDATA%\ShrimpTerm）。
+// 原因：装机版可能被装到 Program Files，那里对普通用户只读，
+// 把 hosts/settings/history 写在安装目录会导致加连接、存 API Key 全部失败。
+const DATA_DIR = app.getPath('userData')
+try { fs.mkdirSync(DATA_DIR, { recursive: true }) } catch (e) {}
+
+// 首次运行：从安装目录迁移旧数据（老版本把数据写在 __dirname），
+// 若没有任何 hosts.json，则用随包发布的示例做种子。
+function seedDataDir() {
+  for (const f of ['settings.json', 'hosts.json', 'history.json']) {
+    const to = path.join(DATA_DIR, f)
+    const from = path.join(DIR, f)
+    if (!fs.existsSync(to) && fs.existsSync(from)) {
+      try { fs.copyFileSync(from, to) } catch (e) {}
+    }
+  }
+  const hostsTo = path.join(DATA_DIR, 'hosts.json')
+  if (!fs.existsSync(hostsTo)) {
+    const seedFile = path.join(DIR, 'hosts.example.json')
+    if (fs.existsSync(seedFile)) { try { fs.copyFileSync(seedFile, hostsTo) } catch (e) {} }
+  }
+}
+seedDataDir()
+
+const HOSTS_FILE = path.join(DATA_DIR, 'hosts.json')
 
 let win = null
 
 // ---------------------------------------------------------------- settings
-const SETTINGS_FILE = path.join(DIR, 'settings.json')
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
 const DEFAULT_SETTINGS = {
   onboarded: false,
   theme: 'dark',
@@ -50,7 +76,7 @@ function writeSettings(next) {
 // ---------------------------------------------------------------- agent memory
 // Keyed by host id (plus "__agent__" for the global agent), so a conversation
 // survives closing the tab or restarting the app. Only an explicit clear drops it.
-const HISTORY_FILE = path.join(DIR, 'history.json')
+const HISTORY_FILE = path.join(DATA_DIR, 'history.json')
 
 function readHistoryAll() {
   try { return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8').replace(/^\uFEFF/, '')) } catch (e) { return {} }

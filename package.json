@@ -13,7 +13,8 @@
     "dist": "electron-builder --win",
     "ship": "powershell -ExecutionPolicy Bypass -File scripts/ship.ps1",
     "test": "node tests/sentinel.test.js",
-    "check": "node tests/preflight.js"
+    "check": "node tests/preflight.js",
+    "installer": "powershell -ExecutionPolicy Bypass -File scripts/installer.ps1"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
