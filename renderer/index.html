@@ -360,6 +360,8 @@
   /* ===== dialogs (CRT-style) ===== */
   .ovl { position: fixed; inset: 0; background: rgba(0,0,0,.42); display: none; align-items: center; justify-content: center; z-index: 70; }
   .ovl.on { display: flex; }
+  /* 确认框可能从其它弹窗里唤起（例如历史会话里点删除），必须永远压在最上层 */
+  #cfm { z-index: 200; }
   .dlg { width: 470px; max-height: 82vh; background: var(--surface2); border: 1px solid var(--line2); border-radius: 12px; box-shadow: 0 24px 70px rgba(0,0,0,.35); display: flex; flex-direction: column; overflow: hidden; }
   .dlg.wide { width: 620px; height: 460px; }
   .dlghead { display: flex; align-items: center; gap: 8px; padding: 13px 16px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; flex: 0 0 auto; }

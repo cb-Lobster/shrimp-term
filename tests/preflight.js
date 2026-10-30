@@ -147,6 +147,20 @@ step('关键事件处理器各注册一次', () => {
   return ids.length + ' 个处理器各一次'
 })
 
+// 9. 确认框层级必须高于普通弹窗
+//    事故：删除对话的确认框被「历史会话」弹窗盖住——#cfm 在 DOM 里排在
+//    #memsel 前面，而 .ovl 都没设 z-index，后出现的自然盖住它。
+step('确认框层级高于普通弹窗', () => {
+  const html = fs.readFileSync(rel(path.join('renderer', 'index.html')), 'utf8')
+  const ovl = html.match(/\.ovl \{[^}]*z-index:\s*(\d+)/)
+  const cfm = html.match(/#cfm \{\s*z-index:\s*(\d+)/)
+  if (!cfm) throw new Error('#cfm 没有设置 z-index，会被历史会话等弹窗盖住')
+  if (ovl && Number(cfm[1]) <= Number(ovl[1])) {
+    throw new Error('#cfm 的 z-index(' + cfm[1] + ') 必须大于 .ovl(' + ovl[1] + ')')
+  }
+  return '#cfm ' + cfm[1] + ' > .ovl ' + (ovl ? ovl[1] : '?')
+})
+
 // 输出
 console.log('')
 for (const r of results) {
