@@ -15,6 +15,24 @@
 └──┴──────────────┴───────────────────────────────┴──────────────┘
 ```
 
+## 安装
+
+从 [Releases](https://github.com/cb-Lobster/shrimp-term/releases) 下载 `ShrimpTerm Setup x.y.z.exe`：
+
+- **按当前用户安装**（`%LOCALAPPDATA%\Programs\ShrimpTerm`），不需要管理员权限
+- 未做代码签名，SmartScreen 提示「未知发布者」时点 **更多信息 → 仍要运行**
+- 运行时数据在 `%APPDATA%\ShrimpTerm`，卸载后保留，重装即恢复连接与设置
+
+也可以从源码跑：
+
+```powershell
+npm install
+npm start            # 开发运行
+npm run check        # 提交前自检（语法 / 回归 / IPC 契约 / 敏感残留）
+npm run ship         # 构建并覆盖安装到本机
+npm run installer    # 产出 NSIS 安装包
+```
+
 ## 两个组成部分
 
 | | 位置 | 能做什么 | 记忆 |
