@@ -243,6 +243,10 @@ async function loadHosts() {
       d.append(dot, name, kind, edit)
       d.onclick = () => {
         if (h.disabled) { openDialog(h); statusEl.textContent = '该会话尚未配置，请先填写连接信息'; return }
+        // 已经连过的会话：切回去，不要再开一个新标签（双击会触发两次 click）
+        const existing = tabs.find((x) => x.hostId === h.id && !x.failed)
+        if (existing) { selectTerm(existing.id); return }
+        if (host.__connecting) { statusEl.textContent = '正在连接 ' + (host.name || host.id) + ' …'; return }
         openHost(h)
       }
       d.oncontextmenu = (ev) => { ev.preventDefault(); ev.stopPropagation(); showCtx(h, ev.clientX, ev.clientY) }
@@ -343,12 +347,22 @@ async function openHost(host) {
 
   try {
     const { id } = await window.st.open(host.id, { encoding: ov.encoding || settings.encoding || 'utf-8' })
+    // 关键：连接成功后标签 id 由 pending-N 换成真实 id，activeId 必须跟着换，
+    // 否则右侧助手拿 tabById(activeId) 找的是旧 id，会显示“先双击左侧会话”。
+    const wasActive = activeId === tab.id
     tab.id = id
     tab.pending = false
     tab.term.write('\x1b[2J\x1b[3J\x1b[H')
-    tab.term.focus()
     markOnline(host.id, true)
     statusEl.textContent = ''
+    if (wasActive) {
+      selectTerm(id)
+    } else {
+      renderTabRow()
+      updateHeads()
+      renderSub()
+    }
+    tab.term.focus()
   } catch (e) {
     const msg = (e && e.message) ? e.message : String(e)
     tab.pending = false
