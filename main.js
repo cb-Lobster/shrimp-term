@@ -47,6 +47,11 @@ seedDataDir()
 
 const HOSTS_FILE = path.join(DATA_DIR, 'hosts.json')
 
+// 构建信息（打包时由 scripts/*.ps1 写入）：用来一眼看出"跑的是哪一版"
+const BUILD_INFO = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(DIR, 'build-info.json'), 'utf8').replace(/^\uFEFF/, '')) } catch (e) { return null }
+})()
+
 let win = null
 
 // ---------------------------------------------------------------- settings
@@ -643,6 +648,8 @@ ipcMain.handle('agent:test', async (_e, cfg) => {
     }
   }
 })
+
+ipcMain.handle('app:info', () => ({ version: app.getVersion(), build: BUILD_INFO }))
 
 ipcMain.handle('agent:ask', async (_e, req) => runAgent(req))
 

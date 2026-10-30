@@ -71,6 +71,11 @@ if ($rcedit) {
   Write-Host "    未找到 rcedit，跳过图标/版本写入（exe 会是 Electron 默认图标）" -ForegroundColor Yellow
 }
 
+# 写入构建信息，让界面能显示“跑的是哪一版”
+$commit = (& git rev-parse --short HEAD 2>$null)
+$info = @{ version = $ver; commit = "$commit"; builtAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') } | ConvertTo-Json -Compress
+[IO.File]::WriteAllText((Join-Path $root 'dist\win-unpacked\resources\app\build-info.json'), $info, (New-Object Text.UTF8Encoding $false))
+
 # --- 5. 覆盖安装
 Write-Host '==> 安装' -ForegroundColor Cyan
 if (Test-Path $Target) { Remove-Item $Target -Recurse -Force }

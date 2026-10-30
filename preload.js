@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('st', {
   input: (id, data) => ipcRenderer.invoke('term:input', { id, data }),
   resize: (id, cols, rows) => ipcRenderer.invoke('term:resize', { id, cols, rows }),
   close: (id) => ipcRenderer.invoke('term:close', id),
+  appInfo: () => ipcRenderer.invoke('app:info'),
+
   ask: (req) => ipcRenderer.invoke('agent:ask', req),
 
   testAgent: (cfg) => ipcRenderer.invoke('agent:test', cfg),

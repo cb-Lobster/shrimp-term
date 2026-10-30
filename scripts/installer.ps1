@@ -48,6 +48,11 @@ if ($rcedit) {
   Write-Host '    未找到 rcedit，安装包里的 exe 会是 Electron 默认图标' -ForegroundColor Yellow
 }
 
+# 写入构建信息，让界面能显示“跑的是哪一版”
+$commit = (& git rev-parse --short HEAD 2>$null)
+$info = @{ version = $ver; commit = "$commit"; builtAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') } | ConvertTo-Json -Compress
+[IO.File]::WriteAllText((Join-Path $root 'dist\win-unpacked\resources\app\build-info.json'), $info, (New-Object Text.UTF8Encoding $false))
+
 # --- 3. 用已打包目录生成 NSIS 安装包（避免重新打包把图标覆盖掉）
 Write-Host '==> 3/3 生成 NSIS 安装包' -ForegroundColor Cyan
 & npx electron-builder --win nsis --prepackaged dist\win-unpacked

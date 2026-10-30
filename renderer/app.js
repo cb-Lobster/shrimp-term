@@ -1295,7 +1295,12 @@ el('subNew').onclick = () => {
   if (!t) { statusEl.textContent = '先双击左侧会话连上机器，助手才有作用对象'; return }
   const conv = activeConv(t)
   const hasContent = (conv.log || []).some((m) => m.cls === 'me')
-  if (!hasContent) { createNewConv(t); return }
+  if (!hasContent) {
+    // 当前就是一段空对话，再新建没有意义——直接说清，不要“闪一下”
+    statusEl.textContent = '当前已经是新对话了，先问一句再用「新会话」'
+    el('subInput').focus()
+    return
+  }
   confirmDialog(
     '新建会话',
     '当前这段对话「' + (conv.title || '新对话') + '」不会删除，会保留在「历史会话」里，随时可以切回。\n\n要新建一段对话吗？',
@@ -1351,6 +1356,15 @@ async function boot() {
   fontSize = Number(settings.fontSize) || 12.5
   el('fontVal').textContent = String(fontSize)
   applyTheme()
+
+  // 把「跑的是哪一版」直接显示出来：标题栏 + 启动时状态栏 4 秒
+  try {
+    const info = await window.st.appInfo()
+    const tag = 'v' + info.version + (info.build && info.build.commit ? ' · ' + info.build.commit : '')
+    document.title = 'ShrimpTerm ' + tag
+    statusEl.textContent = 'ShrimpTerm ' + tag + (info.build && info.build.builtAt ? '（构建于 ' + info.build.builtAt + '）' : '')
+    setTimeout(() => { statusEl.textContent = '' }, 4500)
+  } catch (e) {}
 
   if (!settings.onboarded) {
     el('obBase').value = (settings.agent && settings.agent.baseUrl) || 'https://api.deepseek.com/v1'
