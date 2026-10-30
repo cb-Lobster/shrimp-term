@@ -10,6 +10,9 @@ hosts.json
 *.pem
 *.key
 *.ppk
+*.pfx
+*.cer
+*.p12
 .env
 .env.*
 id_rsa
