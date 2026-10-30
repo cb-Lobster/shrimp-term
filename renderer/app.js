@@ -70,13 +70,19 @@ const tabById = (id) => tabs.find((t) => t.id === id)
 
 // 把旧版本存在 hostId-2 / hostId-3 等 key 下的记忆，合并成对话（幂等）
 async function mergeLegacyConvs(tab) {
+  const consumed = []
   try {
     const list = await window.st.histList(tab.hostId)
-    if (!Array.isArray(list)) return
+    if (!Array.isArray(list)) return consumed
     for (const rec of list) {
       if (!rec || rec.key === tab.hostId) continue
       const id = 'legacy-' + rec.key
-      if (tab.agent.convs.some((c) => c.id === id)) continue
+      const already = tab.agent.convs.some((c) => c.id === id)
+      if (already) {
+        // 内容已经在当前会话里了，源 key 可以直接回收
+        consumed.push(rec.key)
+        continue
+      }
       const v = await window.st.histGet(rec.key)
       if (!v) continue
       const log = Array.isArray(v.log) ? v.log : []
@@ -90,8 +96,10 @@ async function mergeLegacyConvs(tab) {
         createdAt: rec.createdAt || Date.now(),
         updatedAt: rec.updatedAt || rec.createdAt || Date.now(),
       })
+      consumed.push(rec.key)
     }
   } catch (e) {}
+  return consumed
 }
 
 // ---------------- 助手对话（每个 SSH 会话下挂多段对话）
@@ -379,10 +387,14 @@ async function openHost(host) {
     if (saved && (saved.convs || saved.log)) {
       tab.agent = normalizeAgent(saved, tab.name)
     }
-    await mergeLegacyConvs(tab)
+    const consumedKeys = await mergeLegacyConvs(tab)
     pruneEmptyConvs(tab)   // 清掉历史遗留的空对话
     tab.historyLoaded = true
-    persistTabAgent(tab)
+    persistTabAgent(tab)   // 先把合并结果写进主记录…
+    for (const k of consumedKeys) {
+      // …再回收旧 key，避免每次连接都把同样的旧记录重新合并出来
+      try { await window.st.histClear(k) } catch (e) {}
+    }
     renderSub()
 
     const { id } = await window.st.open(host.id, { encoding: ov.encoding || settings.encoding || 'utf-8' })
