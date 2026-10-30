@@ -24,7 +24,10 @@ const DIR = __dirname
 // 运行时数据放系统用户目录（%APPDATA%\ShrimpTerm）。
 // 原因：装机版可能被装到 Program Files，那里对普通用户只读，
 // 把 hosts/settings/history 写在安装目录会导致加连接、存 API Key 全部失败。
-const DATA_DIR = app.getPath('userData')
+// 冒烟测试开关：SHRIMP_SMOKE=1 时用假 SSH 会话与假模型回复，
+// 让自动化测试不依赖真实服务器与 API Key。生产运行时该变量不存在。
+const SMOKE = process.env.SHRIMP_SMOKE === '1'
+const DATA_DIR = process.env.SHRIMP_DATA_DIR || app.getPath('userData')
 try { fs.mkdirSync(DATA_DIR, { recursive: true }) } catch (e) {}
 
 // 首次运行：从安装目录迁移旧数据（老版本把数据写在 __dirname），
@@ -299,6 +302,15 @@ function decodeChunk(buf, enc) {
 function writeTo(id, text) {
   const s = sessions.get(id)
   if (!s) return false
+  if (s.fake) {
+    s.fakeSend(text)                                  // 回显，跟真实终端一致
+    const m = /__SHRIMP_[A-Z0-9]+_DONE__/.exec(text)
+    setTimeout(() => {
+      if (m) s.fakeSend('\r\nsmoke-output-ok\r\n' + m[0] + ':0\r\n$ ')
+      else s.fakeSend('\r\n$ ')
+    }, 25)
+    return true
+  }
   s.stream.write(text)
   return true
 }
@@ -474,6 +486,10 @@ const SUB_SYS = 'You are shrimp, an operations agent embedded in an SSH client.\
   + '- Keep prose to one or two sentences; put the detail in the table.'
 
 async function runAgent({ text, targets, history }) {
+  if (SMOKE) {
+    await sleep(30)
+    return { reply: '（冒烟固定回复）收到：' + String(text || ''), actions: [] }
+  }
   const cfg = readSettings().agent || {}
   const key = cfg.apiKey || loadKey()
   if (!key) return { error: '\u5c1a\u672a\u914d\u7f6e agent API key\uff0c\u8bf7\u5230\u8bbe\u7f6e\u91cc\u586b\u5199\u3002' }
@@ -624,8 +640,22 @@ ipcMain.handle('hosts:addGroup', (_e, name) => {
 ipcMain.handle('term:open', async (_e, hostId, opts) => {
   const host = loadHosts().find((h) => h.id === hostId)
   if (!host) throw new Error('unknown host ' + hostId)
+  if (SMOKE) return openFakeSession(host)
   return openSession(host, opts || {})
 })
+
+// 假会话：写什么就回显什么；遇到哨兵标记立即回一个成功行
+function openFakeSession(host) {
+  const id = 'smoke-' + (++seq)
+  const sess = { conn: null, stream: { write() {} }, host, tail: '', encoding: 'utf-8', fake: true }
+  sessions.set(id, sess)
+  sess.fakeSend = (data) => {
+    tailAppend(sess, data)
+    if (win) win.webContents.send('term:data', { id, data })
+  }
+  setTimeout(() => sess.fakeSend('smoke shell ready\r\n$ '), 40)
+  return { id }
+}
 
 ipcMain.handle('term:setEncoding', (_e, id, enc) => {
   const s = sessions.get(id)

@@ -14,6 +14,7 @@
     "ship": "powershell -ExecutionPolicy Bypass -File scripts/ship.ps1",
     "test": "node tests/sentinel.test.js",
     "check": "node tests/preflight.js",
+    "smoke": "node tests/smoke.mjs",
     "installer": "powershell -ExecutionPolicy Bypass -File scripts/installer.ps1"
   },
   "dependencies": {
@@ -25,14 +26,18 @@
   },
   "devDependencies": {
     "electron": "^33.4.11",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "playwright-core": "^1.64.1"
   },
   "build": {
     "appId": "dev.cblobster.shrimpterm",
     "productName": "ShrimpTerm",
     "copyright": "MIT (c) cb-Lobster",
     "asar": false,
-    "directories": { "output": "dist", "buildResources": "assets" },
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
     "files": [
       "main.js",
       "preload.js",
@@ -41,7 +46,13 @@
       "assets/**/*",
       "hosts.example.json"
     ],
-    "win": { "target": ["nsis"], "icon": "assets/shrimp.ico", "signAndEditExecutable": false },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/shrimp.ico",
+      "signAndEditExecutable": false
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,

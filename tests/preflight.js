@@ -180,6 +180,20 @@ step('保存受 historyLoaded 守卫', () => {
   return 'persistTabAgent 有守卫，renderSub 不落盘'
 })
 
+// 11. 测试接缝必须是环境变量开关，且默认关闭
+//    事故预防：SHRIMP_SMOKE 的假会话/假模型一旦写死成 true，
+//    正式版就会变成“假装在执行”的空壳。
+step('测试接缝由环境变量开关', () => {
+  const main = fs.readFileSync(rel('main.js'), 'utf8')
+  if (!/const SMOKE = process\.env\.SHRIMP_SMOKE === '1'/.test(main)) {
+    throw new Error('找不到 SMOKE 开关，或它不再由 SHRIMP_SMOKE=1 控制')
+  }
+  const uses = (main.match(/\bSMOKE\b/g) || []).length
+  if (uses < 3) throw new Error('SMOKE 分支异常：只有 ' + uses + ' 处引用')
+  if (/const SMOKE = true/.test(main)) throw new Error('SMOKE 被写死为 true')
+  return 'SHRIMP_SMOKE=1 才启用，共 ' + uses + ' 处引用'
+})
+
 // 输出
 console.log('')
 for (const r of results) {

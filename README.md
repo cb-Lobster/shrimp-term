@@ -23,7 +23,8 @@
 ```powershell
 npm install
 npm start            # 开发运行
-npm run check        # 提交前自检（语法 / 回归 / IPC 契约 / 敏感残留）
+npm run check        # 静态自检（语法 / 回归 / IPC 契约 / 敏感残留）
+npm run smoke        # 冒烟测试：真实窗口跑一遍连上→提问→新会话→历史→重启不丢
 npm run ship         # 构建并覆盖安装到本机
 npm run installer    # 产出 NSIS 安装包
 ```
