@@ -133,19 +133,22 @@ ipcMain.handle('hist:list', (_e, hostId) => {
   const all = readHistoryAll()
   const out = []
   for (const key of Object.keys(all)) {
-    const v = all[key] || {}
-    if (key === '__agent__' || Array.isArray(v.convs) || Array.isArray(v.topLevel)) continue
     if (key === '__agent__') continue
-    if (v.convs) continue
+    const v = all[key] || {}
+    if (Array.isArray(v.convs)) continue          // 多段对话由渲染层直接读
+    if (!Array.isArray(v.log)) continue
+    if (!v.log.length) continue
     const owner = v.hostId || String(key).split('#')[0]
-    if (hostId && owner !== hostId) continue
+    // 兼容旧版本：记忆曾按 hostId-2 / hostId-3 这样的前缀另存多份
+    const mine = !hostId || owner === hostId || key === hostId || key.startsWith(hostId + '-')
+    if (!mine) continue
     out.push({
       key,
       hostId: owner,
       name: v.name || '',
       createdAt: v.createdAt || 0,
       updatedAt: v.updatedAt || 0,
-      count: (v.log || []).length,
+      count: v.log.length,
     })
   }
   out.sort((a, b) => b.updatedAt - a.updatedAt)

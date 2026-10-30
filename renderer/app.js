@@ -68,6 +68,32 @@ function termTheme() { return TERM_THEMES[termThemeName] || TERM_THEMES.dark }
 
 const tabById = (id) => tabs.find((t) => t.id === id)
 
+// 把旧版本存在 hostId-2 / hostId-3 等 key 下的记忆，合并成对话（幂等）
+async function mergeLegacyConvs(tab) {
+  try {
+    const list = await window.st.histList(tab.hostId)
+    if (!Array.isArray(list)) return
+    for (const rec of list) {
+      if (!rec || rec.key === tab.hostId) continue
+      const id = 'legacy-' + rec.key
+      if (tab.agent.convs.some((c) => c.id === id)) continue
+      const v = await window.st.histGet(rec.key)
+      if (!v) continue
+      const log = Array.isArray(v.log) ? v.log : []
+      const history = Array.isArray(v.history) ? v.history : []
+      if (!log.length && !history.length) continue
+      tab.agent.convs.push({
+        id,
+        title: convTitleFrom(log, tab.name),
+        log,
+        history,
+        createdAt: rec.createdAt || Date.now(),
+        updatedAt: rec.updatedAt || rec.createdAt || Date.now(),
+      })
+    }
+  } catch (e) {}
+}
+
 // ---------------- 助手对话（每个 SSH 会话下挂多段对话）
 function newConvObj(title) {
   return {
@@ -349,8 +375,9 @@ async function openHost(host) {
     try { saved = await window.st.histGet(host.id) } catch (e) {}
     if (saved && (saved.convs || saved.log)) {
       tab.agent = normalizeAgent(saved, tab.name)
-      renderSub()
     }
+    await mergeLegacyConvs(tab)
+    renderSub()
 
     const { id } = await window.st.open(host.id, { encoding: ov.encoding || settings.encoding || 'utf-8' })
     // 关键：标签 id 由 pending-N 换成真实 id，activeId 必须跟着换，

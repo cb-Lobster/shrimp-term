@@ -5,7 +5,7 @@
 $ErrorActionPreference = 'Stop'
 
 $src  = $PSScriptRoot
-$prog = Join-Path $env:LOCALAPPDATA 'Programs\shrimp-term'
+$prog = 'D:\Apps\ShrimpTerm'   # 与 npm run ship 同一处安装，避免两个副本混淆
 $app  = Join-Path $prog 'resources\app'
 
 if (-not (Test-Path (Join-Path $prog 'ShrimpTerm.exe'))) {
