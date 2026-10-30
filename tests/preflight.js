@@ -114,6 +114,23 @@ step('渲染层核心函数定义齐全', () => {
   return need.length + ' 个函数各一处定义且有调用'
 })
 
+// 7. hist:get 必须同时兼容新（convs）与旧（log）两种结构
+//    事故：数据改成多段对话后，hist:get 仍按 Array.isArray(rec.log) 判断，
+//    新记录没有 log 字段 → 直接返回 null → 重启后对话全部丢失。
+step('hist:get 兼容多段对话结构', () => {
+  const main = fs.readFileSync(rel('main.js'), 'utf8')
+  const i = main.indexOf("ipcMain.handle('hist:get'")
+  if (i < 0) throw new Error('找不到 hist:get handler')
+  const seg = main.slice(i, i + 800)
+  if (!seg.includes('rec.convs')) {
+    throw new Error('hist:get 未处理 convs 结构 —— 重启后对话会全部丢失')
+  }
+  if (!seg.includes('rec.log')) {
+    throw new Error('hist:get 不再兼容旧结构 —— 老用户的历史会读不出来')
+  }
+  return 'convs 与旧 log 两种结构都支持'
+})
+
 // 输出
 console.log('')
 for (const r of results) {

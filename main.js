@@ -88,7 +88,18 @@ function writeHistoryAll(o) {
 
 ipcMain.handle('hist:get', (_e, key) => {
   const rec = readHistoryAll()[key]
-  if (!rec || !Array.isArray(rec.log)) return null
+  if (!rec) return null
+  // 新结构：一段会话下挂多段对话
+  if (Array.isArray(rec.convs)) {
+    return {
+      convs: rec.convs,
+      activeId: rec.activeId || null,
+      hostId: rec.hostId || '',
+      name: rec.name || '',
+    }
+  }
+  // 旧结构兼容：单段 { log, history }
+  if (!Array.isArray(rec.log)) return null
   return { log: rec.log, history: Array.isArray(rec.history) ? rec.history : [] }
 })
 

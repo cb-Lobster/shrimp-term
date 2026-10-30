@@ -37,6 +37,12 @@ npm run installer    # 产出 NSIS 安装包
 
 助手没有任何其他执行通道，这是刻意的限制：它的每一步都发生在你眼前的终端里。
 
+## 多段对话
+
+每个 SSH 会话下可以有多段对话：「新会话」新建一段，旧的自动保留；「历史会话」列出这台机器的全部对话，点「打开」就切回那一段继续追问。
+
+![历史会话：每台机器的多段对话，可切回继续](docs/assets/screenshot-history.png)
+
 ## 技术栈
 
 **零框架。** agent 是一个手写的 tool-calling 循环（`main.js` 里的 `runAgent`，约 90 行），没有 LangChain / CrewAI / RAG / 向量库。
