@@ -83,16 +83,37 @@ function writeSettings(next) {
 // survives closing the tab or restarting the app. Only an explicit clear drops it.
 const HISTORY_FILE = path.join(DATA_DIR, 'history.json')
 
+// 数据读写诊断日志：只记 key 与条目数，不含对话内容
+const DEBUG_LOG = path.join(DATA_DIR, 'debug.log')
+function dlog(msg) {
+  try {
+    if (fs.existsSync(DEBUG_LOG) && fs.statSync(DEBUG_LOG).size > 512 * 1024) {
+      fs.renameSync(DEBUG_LOG, DEBUG_LOG + '.1')
+    }
+    fs.appendFileSync(DEBUG_LOG, new Date().toISOString() + ' ' + msg + '\n')
+  } catch (e) {}
+}
+
+function histShape(rec) {
+  if (!rec) return 'null'
+  if (Array.isArray(rec.convs)) {
+    const items = rec.convs.reduce((n, c) => n + ((c.log || []).length), 0)
+    return 'convs=' + rec.convs.length + ' items=' + items
+  }
+  return 'log=' + ((rec.log || []).length)
+}
+
 function readHistoryAll() {
   try { return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8').replace(/^\uFEFF/, '')) } catch (e) { return {} }
 }
 
 function writeHistoryAll(o) {
-  try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(o)) } catch (e) {}
+  try { fs.writeFileSync(HISTORY_FILE, JSON.stringify(o)) } catch (e) { dlog('WRITE-ERR ' + (e && e.message)) }
 }
 
 ipcMain.handle('hist:get', (_e, key) => {
   const rec = readHistoryAll()[key]
+  dlog('GET  ' + key + ' -> ' + histShape(rec))
   if (!rec) return null
   // 新结构：一段会话下挂多段对话
   if (Array.isArray(rec.convs)) {
@@ -116,8 +137,12 @@ function trimAgentState(v) {
   }
   if (Array.isArray(v.convs)) {
     meta.convs = v.convs.slice(-30).map((c) => ({
-      id: c.id, title: c.title, createdAt: c.createdAt,
-      log: (c.log || []).slice(-300), history: (c.history || []).slice(-80),
+      id: c.id,
+      title: c.title,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt || c.createdAt || Date.now(),
+      log: (c.log || []).slice(-300),
+      history: (c.history || []).slice(-80),
     }))
     meta.activeId = v.activeId
     return meta
@@ -158,7 +183,9 @@ ipcMain.handle('hist:list', (_e, hostId) => {
 ipcMain.handle('hist:save', (_e, key, value) => {
   if (!key) return false
   const all = readHistoryAll()
-  all[key] = trimAgentState(value)
+  const trimmed = trimAgentState(value)
+  dlog('SAVE ' + key + ' -> ' + histShape(trimmed))
+  all[key] = trimmed
   writeHistoryAll(all)
   return true
 })
