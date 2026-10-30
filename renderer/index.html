@@ -581,6 +581,20 @@
     <div class="ctxitem danger" data-a="delete">删除会话</div>
   </div>
 
+  <!-- 通用确认框：新会话 / 删除对话 等有副作用的操作走这里 -->
+  <div id="cfm" class="ovl">
+    <div class="dlg" style="width:420px">
+      <div class="dlghead"><span id="cfmTitle">确认</span><span class="x" id="cfmX">&#10005;</span></div>
+      <div class="dlgbody col">
+        <div id="cfmMsg" style="font-size:12.5px;line-height:1.8;color:var(--text);white-space:pre-wrap"></div>
+      </div>
+      <div class="dlgfoot">
+        <button id="cfmCancel">取消</button>
+        <button class="primary" id="cfmOk">确定</button>
+      </div>
+    </div>
+  </div>
+
   <!-- session memory picker -->
   <div id="memsel" class="ovl">
     <div class="dlg">

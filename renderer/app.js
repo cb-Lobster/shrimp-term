@@ -1224,15 +1224,23 @@ async function openMemSel() {
     btnDel.className = 'pill'
     btnDel.textContent = '\u5220\u9664'
     btnDel.onclick = () => {
-      cur.agent.convs = cur.agent.convs.filter((x) => x.id !== c.id)
-      if (!cur.agent.convs.length) cur.agent.convs.push(newConvObj())
-      if (!cur.agent.convs.some((x) => x.id === cur.agent.activeId)) {
-        cur.agent.activeId = cur.agent.convs[cur.agent.convs.length - 1].id
+      const doDelete = () => {
+        cur.agent.convs = cur.agent.convs.filter((x) => x.id !== c.id)
+        if (!cur.agent.convs.length) cur.agent.convs.push(newConvObj())
+        if (!cur.agent.convs.some((x) => x.id === cur.agent.activeId)) {
+          cur.agent.activeId = cur.agent.convs[cur.agent.convs.length - 1].id
+        }
+        persistTabAgent(cur)
+        renderSub()
+        updateHeads()
+        openMemSel()
       }
-      persistTabAgent(cur)
-      renderSub()
-      updateHeads()
-      openMemSel()
+      confirmDialog(
+        '删除对话',
+        '「' + (c.title || '新对话') + '」这段对话记录会被永久删除，无法恢复。\n（终端连接和其他对话都不受影响）',
+        '删除',
+        doDelete
+      )
     }
 
     row.append(info, btnOpen, btnDel)
@@ -1242,15 +1250,58 @@ async function openMemSel() {
 }
 el('subHist').onclick = openMemSel
 
-// --- 新会话：清空当前会话的对话与上下文（两次点击确认，防误清）
-let subNewArmed = null   // 记录“已确认的是哪个会话”，避免切换会话后误清
-let subNewTimer = null
-function disarmSubNew() {
-  subNewArmed = null
-  clearTimeout(subNewTimer)
-  const b = el('subNew')
-  b.classList.remove('armed')
-  b.textContent = '新会话'
+// --- 通用确认框：有副作用的操作先问一句（防误触）
+let cfmCb = null
+function closeConfirm() {
+  cfmCb = null
+  el('cfm').classList.remove('on')
+}
+function confirmDialog(title, message, okText, onOk) {
+  el('cfmTitle').textContent = title || '确认'
+  el('cfmMsg').textContent = message || ''
+  el('cfmOk').textContent = okText || '确定'
+  cfmCb = onOk || null
+  el('cfm').classList.add('on')
+  setTimeout(() => { try { el('cfmOk').focus() } catch (e) {} }, 0)
+}
+el('cfmOk').onclick = () => {
+  const cb = cfmCb
+  closeConfirm()
+  if (cb) {
+    try { cb() } catch (e) { statusEl.textContent = '操作失败：' + (e && e.message ? e.message : e) }
+  }
+}
+el('cfmCancel').onclick = closeConfirm
+el('cfmX').onclick = closeConfirm
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && el('cfm').classList.contains('on')) { ev.preventDefault(); closeConfirm() }
+})
+
+// --- 新会话：新建一段对话，旧的原样保留；有内容时先确认，避免误触
+function createNewConv(t) {
+  const c = newConvObj()
+  t.agent = t.agent && Array.isArray(t.agent.convs) ? t.agent : normalizeAgent(t.agent, t.name)
+  t.agent.convs.push(c)
+  t.agent.activeId = c.id
+  el('subInput').value = ''
+  persistTabAgent(t)
+  renderSub()
+  updateHeads()
+  el('subInput').focus()
+  statusEl.textContent = '已新建对话；上一段保留在「历史会话」'
+}
+el('subNew').onclick = () => {
+  const t = tabById(activeId)
+  if (!t) { statusEl.textContent = '先双击左侧会话连上机器，助手才有作用对象'; return }
+  const conv = activeConv(t)
+  const hasContent = (conv.log || []).some((m) => m.cls === 'me')
+  if (!hasContent) { createNewConv(t); return }
+  confirmDialog(
+    '新建会话',
+    '当前这段对话「' + (conv.title || '新对话') + '」不会删除，会保留在「历史会话」里，随时可以切回。\n\n要新建一段对话吗？',
+    '新建',
+    () => createNewConv(t)
+  )
 }
 el('subNew').onclick = () => {
   const t = tabById(activeId)
