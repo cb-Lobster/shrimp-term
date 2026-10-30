@@ -131,6 +131,22 @@ step('hist:get 兼容多段对话结构', () => {
   return 'convs 与旧 log 两种结构都支持'
 })
 
+// 8. 关键事件处理器：每个只能注册一次
+//    事故：脚本批量替换时括号匹配错位，留下第二处 el('subNew').onclick = ...，
+//    后一个把前一个覆盖掉，新逻辑等于没生效（点了没反应，也没有提示）。
+step('关键事件处理器各注册一次', () => {
+  const app = fs.readFileSync(rel(path.join('renderer', 'app.js')), 'utf8')
+  const ids = ['subNew', 'subHist', 'subSend', 'btnSubToggle', 'rightHandle',
+    'cfmOk', 'cfmCancel', 'cfmX']
+  const bad = []
+  for (const id of ids) {
+    const n = (app.match(new RegExp("el\\('" + id + "'\\)\\.onclick", 'g')) || []).length
+    if (n !== 1) bad.push(id + ' 注册 ' + n + ' 次')
+  }
+  if (bad.length) throw new Error(bad.join('; '))
+  return ids.length + ' 个处理器各一次'
+})
+
 // 输出
 console.log('')
 for (const r of results) {

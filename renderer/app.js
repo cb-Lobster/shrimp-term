@@ -1350,20 +1350,6 @@ el('subNew').onclick = () => {
     () => createNewConv(t)
   )
 }
-el('subNew').onclick = () => {
-  const t = tabById(activeId)
-  if (!t) { statusEl.textContent = '\u5148\u53cc\u51fb\u5de6\u4fa7\u4f1a\u8bdd\u8fde\u4e0a\u673a\u5668\uff0c\u52a9\u624b\u624d\u6709\u4f5c\u7528\u5bf9\u8c61'; return }
-  const c = newConvObj()
-  t.agent = t.agent && Array.isArray(t.agent.convs) ? t.agent : normalizeAgent(t.agent, t.name)
-  t.agent.convs.push(c)
-  t.agent.activeId = c.id
-  el('subInput').value = ''
-  persistTabAgent(t)
-  renderSub()
-  updateHeads()
-  el('subInput').focus()
-  statusEl.textContent = '\u5df2\u65b0\u5efa\u5bf9\u8bdd\uff1b\u4e0a\u4e00\u6bb5\u4fdd\u7559\u5728\u300c\u5386\u53f2\u4f1a\u8bdd\u300d'
-}
 
 
 // ---------------- delete a connection
