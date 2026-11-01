@@ -1,10 +1,12 @@
 # ShrimpTerm
 
 [![CI](https://github.com/cb-Lobster/shrimp-term/actions/workflows/ci.yml/badge.svg)](https://github.com/cb-Lobster/shrimp-term/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-0.2.0-blue)
+[![Release](https://img.shields.io/github/v/release/cb-Lobster/shrimp-term?include_prereleases&label=release)](https://github.com/cb-Lobster/shrimp-term/releases/latest)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
 一个带 AI 助手的 SSH 客户端。多标签终端 + 每个连接独立的运维助手 —— 所有命令都打在你看得见的终端里。
+
+> **下载**：[Releases](https://github.com/cb-Lobster/shrimp-term/releases/latest) → `ShrimpTerm Setup 0.2.0.exe`（Windows 10+，按当前用户安装，无需管理员权限）
 
 界面参照极简路线（参考 [Pi Coding Agent](https://pi.dev)）：一个窗口、三个区、零面板堆叠。agent 遵循「能看见它敲什么」——所有命令都打在你看得见的终端里。
 
