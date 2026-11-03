@@ -7,7 +7,7 @@
 
 ## 安装
 
-下载 `ShrimpTerm Setup 0.3.0.exe`（80 MB）后双击安装。
+下载 `ShrimpTerm.Setup.0.3.0.exe`（80 MB）后双击安装。
 
 - **按当前用户安装**（`%LOCALAPPDATA%\Programs\ShrimpTerm`），**不需要管理员权限**
 - 安装时可自定义路径；桌面与开始菜单快捷方式自动创建
