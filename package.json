@@ -1,7 +1,7 @@
 {
   "name": "shrimp-term",
   "productName": "ShrimpTerm",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "ShrimpTerm: 极简 SSH 终端，带一个只能在你看着的终端里打字的运维助手",
   "author": "cb-Lobster",
   "license": "MIT",
