@@ -27,6 +27,9 @@ data/
 *.log
 _sshtest.js
 
+# 改样式前的本地备份（只在自己机器上用于回滚）
+.backup/
+
 # 系统垃圾
 .DS_Store
 Thumbs.db

@@ -455,6 +455,9 @@ function createTab(id, host, ov, saved, failMsg, pendingMsg) {
   const term = new TerminalCtor({
     fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, monospace',
     fontSize: fs0, theme: TERM_THEMES[th0] || TERM_THEMES.dark, cursorBlink: true, letterSpacing: 0.2,
+    // 行距必须走构造参数：用 CSS 改 .xterm-rows 的 line-height 会让字符网格
+    // 和光标位置错开（xterm 按自身行高算坐标），别在这上面取巧。
+    lineHeight: 1.3,
     scrollback: 5000, allowProposedApi: true,
   })
   const fit = new FitCtor()
