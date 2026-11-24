@@ -47,7 +47,7 @@ foreach ($f in $runtime) {
 # --- 3. 构建
 Write-Host '==> 构建' -ForegroundColor Cyan
 $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
-& npx electron-builder --win --dir
+& npm run pack
 if ($LASTEXITCODE -ne 0) { throw "构建失败（exit $LASTEXITCODE）" }
 
 $exe = "dist\win-unpacked\ShrimpTerm.exe"

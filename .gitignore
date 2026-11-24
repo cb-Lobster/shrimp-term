@@ -5,6 +5,8 @@ node_modules/
 settings.json
 history.json
 hosts.json
+known-hosts.json
+tasks.json
 
 # 本地凭据与密钥（绝不入库）
 *.pem
@@ -20,6 +22,7 @@ id_ed25519
 
 # 打包产物
 dist/
+renderer/generated/
 release/
 data/
 

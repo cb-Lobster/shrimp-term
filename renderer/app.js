@@ -18,12 +18,13 @@ const mirrorEl = el('mirror')
 const statusEl = el('status')
 
 const tabs = []
+const workspaces = []
+const hostHistory = new Map()
+const mirrorTargets = new Set()
+let activeWorkspace = null
 let activeId = null
-let view = 'term'           // 只剩终端视图
 let fontSize = 12.5
-let subBusy = false
-
-const AGENT_TAB = '__agent__'
+const busyConversations = new Set()
 
 const TERM_THEMES = {
   dark: {
@@ -64,7 +65,6 @@ const TERM_THEMES = {
   },
 }
 let termThemeName = 'dark'
-function termTheme() { return TERM_THEMES[termThemeName] || TERM_THEMES.dark }
 
 const tabById = (id) => tabs.find((t) => t.id === id)
 
@@ -158,22 +158,22 @@ function activeConv(tab) {
 }
 
 function persistTabAgent(tab) {
-  if (!tab.memKey || typeof window.st.histSave !== 'function') return
+  if (!tab.memKey) return Promise.resolve(false)
   // 关键：历史还没加载完就保存，会用“空对话”覆盖掉磁盘上的真实记录。
   // 事故：新建标签 → renderSub → 保存空状态 → 再 histGet 读回来已是空的，重启必丢。
-  if (!tab.historyLoaded) return
+  if (!tab.historyLoaded) return Promise.resolve(false)
   const c = activeConv(tab)
   const count = tab.agent.convs.reduce((n, x) => n + (x.log ? x.log.length : 0), 0)
   try {
-    window.st.histSave(tab.memKey, {
+    return window.st.histSave(tab.memKey, {
       convs: tab.agent.convs,
       activeId: tab.agent.activeId,
       hostId: tab.hostId,
       name: c.title,
       count,
       createdAt: tab.memCreatedAt || (tab.memCreatedAt = Date.now()),
-    })
-  } catch (e) {}
+    }).catch((error) => { statusEl.textContent = error.message; return false })
+  } catch (e) { return Promise.resolve(false) }
 }
 
 // ---------------- window controls
@@ -181,57 +181,61 @@ el('wMin').onclick = () => window.st.winMinimize()
 el('wMax').onclick = () => window.st.winMaximize()
 el('wClose').onclick = () => window.st.winClose()
 
-// ---------------- left rail
-document.querySelectorAll('.railbtn[data-panel]').forEach((b) => {
-  b.onclick = () => {
-    const name = b.dataset.panel
-    if (name === 'settings') { openGlobal('appear'); return }
-    document.querySelectorAll('.railbtn').forEach((x) => x.classList.toggle('active', x === b))
-    document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('active', p.id === 'pane-' + name))
-    setPanelVisible(true)
-  }
-})
-
 // ---------------- view switching
-function showView(v) {
-  view = 'term'
-  termsEl.style.display = ''
-  el('toolbar').style.display = ''
-  el('right').classList.toggle('hidden', rightHiddenByUser)
+function showView() {
+  const pane = tabById(activeId)
+  el('toolbar').hidden = !pane
+  el('empty').hidden = !!pane
+  el('vaultNav').hidden = !!pane
+  el('libraryHome').classList.toggle('on', !pane)
+  if (!pane) el('searchWrap').hidden = true
   renderTabRow()
   renderSub()
-  const t = tabById(activeId)
-  if (t) requestAnimationFrame(() => { try { t.fit.fit() } catch (e) {} t.term.focus() })
   updateHeads()
 }
 
 function updateHeads() {
   const t = tabById(activeId)
   el('subTarget').textContent = t ? t.name : '未连接'
-  // 当前作用对象写进「新会话」的 tooltip，避免少了机器名之后不知道在对谁说话
-  el('subNew').title = t
-    ? '当前会话：' + t.name + '　清空助手的对话与上下文，重新开始'
-    : '先双击左侧会话连上机器'
-  // 只在“正在发送”时禁用；其余情况保持可点，点了给明确提示，而不是静默无反应
-  el('subSend').disabled = subBusy
-  const why = !hasApi() ? '先到「设置 → Agent API」填 Key' : (!t ? '先双击左侧会话连上机器' : '')
-  el('subSend').title = why || '发送（Enter）'
-  el('subInput').placeholder = why ? '助手不可用：' + why : '只针对当前会话提问…'
-  el('subInput').disabled = subBusy
+  el('subNew').title = t ? '新建 ' + t.name + ' 的对话' : '请先连接主机'
+  const busy = !!t?.historyLoaded && busyConversations.has(activeConv(t))
+  el('subSend').disabled = busy
+  const why = !t?.sessionId ? '请先连接主机' : !t.historyLoaded ? '正在载入对话' : !hasApi() ? '请在设置中填写 API Key' : ''
+  el('subSend').title = busy ? '正在获取回复' : why || '发送（Enter）'
+  el('subInput').placeholder = why || '向当前主机提问…'
+  el('subInput').disabled = busy
+  el('connectionState').textContent = t ? t.userTarget + ' · ' + (t.pending ? '连接中' : t.sessionId ? '已连接' : '已断开') : '未连接'
+  el('connectionState').dataset.connected = String(!!t?.sessionId)
+  el('terminalTarget').textContent = t?.userTarget || ''
+  updateFileView()
 }
 
-function hasApi() { return !!(settings.agent && settings.agent.apiKey) }
+function hasApi() { return !!settings.agent?.configured }
 
 // ---------------- hosts
 let allHosts = []
+let hostGroups = []
 const collapsed = {}
 
 async function loadHosts() {
-  allHosts = await window.st.hosts()
+  try { allHosts = await window.st.hosts() } catch (error) { statusEl.textContent = error.message; return }
+
+  try { hostGroups = await window.st.groups() } catch (e) {}
+  renderHosts()
+}
+
+function renderHosts(resetLibrary = false) {
+  const query = el('hostSearch').value.trim().toLowerCase()
+  const matches = allHosts.filter((h) => [h.name, h.host, h.user, h.group].some((v) => String(v || '').toLowerCase().includes(query)))
+  window.shrimpWorkspace.renderHosts(el('hostLibrary'), {
+    hosts: allHosts, recent: settings.recentHosts || [], favorites: settings.favoriteHosts || [],
+    section: librarySection, groups: hostGroups, online: tabs.filter((pane) => pane.sessionId).map((pane) => pane.hostId),
+    onOpen: (host) => openHost(host), onFavorite: toggleFavorite, onEdit: (host) => openDialog(host),
+    onNew: () => openDialog(null), onQuick: (target) => openDialog(null, true, target),
+  }, resetLibrary)
 
   // group order: declared groups first, then whatever the hosts reference, then ""
-  const declared = []
-  try { declared.push(...((await window.st.groups()) || [])) } catch (e) {}
+  const declared = hostGroups
   const used = []
   for (const h of allHosts) {
     const g = h.group || ''
@@ -242,13 +246,13 @@ async function loadHosts() {
   const hasUngrouped = allHosts.some((h) => !h.group)
 
   hostList.replaceChildren()
-  const buckets = order.map((g) => ({ name: g, items: allHosts.filter((h) => (h.group || '') === g) }))
-  if (hasUngrouped || !order.length) buckets.push({ name: '', items: allHosts.filter((h) => !h.group) })
+  const buckets = order.map((g) => ({ name: g, items: matches.filter((h) => (h.group || '') === g) }))
+  if (hasUngrouped || !order.length) buckets.push({ name: '', items: matches.filter((h) => !h.group) })
 
   for (const b of buckets) {
     if (!b.items.length && b.name) continue
     const g = document.createElement('div')
-    g.className = 'group' + (collapsed[b.name] ? ' collapsed' : '')
+    g.className = 'group' + (collapsed[b.name] && !query ? ' collapsed' : '')
 
     const head = document.createElement('div')
     head.className = 'ghead'
@@ -271,6 +275,7 @@ async function loadHosts() {
       const d = document.createElement('div')
       d.className = 'host' + (h.disabled ? ' disabled' : '')
       d.dataset.hostId = h.id
+      if (tabs.some((pane) => pane.hostId === h.id && pane.sessionId)) d.classList.add('on')
       const dot = document.createElement('span'); dot.className = 'dot'
       const name = document.createElement('span'); name.className = 'name'; name.textContent = h.name || h.id
       const kind = document.createElement('span'); kind.className = 'kind'
@@ -308,302 +313,6 @@ newGroupInput.addEventListener('keydown', async (ev) => {
   loadHosts()
 })
 
-function markOnline(hostId, on) {
-  const n = hostList.querySelector('[data-host-id="' + hostId + '"]')
-  if (!n) return
-  n.classList.toggle('on', on)
-  if (on) { n.classList.remove('fail'); n.title = '' }
-}
-
-function markBusy(hostId, on) {
-  const n = hostList.querySelector('[data-host-id="' + hostId + '"]')
-  if (n) n.classList.toggle('busy', on)
-}
-
-function markFailed(hostId, msg) {
-  const n = hostList.querySelector('[data-host-id="' + hostId + '"]')
-  if (!n) return
-  n.classList.remove('on', 'busy')
-  n.classList.add('fail')
-  n.title = '\u4e0a\u6b21\u8fde\u63a5\u5931\u8d25\uff1a' + msg
-}
-
-function writePending(term, host) {
-  const C = (s) => '\x1b[' + s + 'm'
-  const R = C('0')
-  term.writeln('')
-  term.writeln(C('1;36') + '\u2192 \u6b63\u5728\u8fde\u63a5' + R + '  ' + (host.host || '?') + ':' + (host.port || 22))
-  term.writeln(C('90') + '  \u7528\u6237 ' + (host.user || 'ubuntu') + R)
-  term.writeln(C('90') + '  \u6700\u591a\u7b49\u5f85 12 \u79d2\uff0c\u5931\u8d25\u4f1a\u5728\u8fd9\u91cc\u663e\u793a\u539f\u56e0' + R)
-  term.writeln('')
-}
-
-function writeFailBanner(term, host, ov, msg) {
-  const C = (s) => '\x1b[' + s + 'm'
-  const R = C('0')
-  const how = host.password ? '\u5bc6\u7801' : ('\u5bc6\u94a5 ' + (host.key || '(\u672a\u586b\u5199)'))
-  term.writeln('')
-  term.writeln(C('1;31') + '\u2716 \u8fde\u63a5\u5931\u8d25' + R)
-  term.writeln('')
-  term.writeln(C('90') + '\u76ee\u6807   ' + R + (host.host || '(\u672a\u586b\u5199\u5730\u5740)') + ':' + (host.port || 22))
-  term.writeln(C('90') + '\u7528\u6237   ' + R + (host.user || 'ubuntu'))
-  term.writeln(C('90') + '\u8ba4\u8bc1   ' + R + how)
-  term.writeln(C('90') + '\u539f\u56e0   ' + R + C('31') + msg + R)
-  term.writeln('')
-  term.writeln(C('90') + '\u8fd9\u4e2a\u6807\u7b7e\u4fdd\u7559\u4e0b\u6765\u4e86\uff0c\u65b9\u4fbf\u4f60\u770b\u5230\u5b8c\u6574\u9519\u8bef\u3002' + R)
-  term.writeln(C('90') + '\u4fee\u6539\uff1a\u53f3\u952e\u4f1a\u8bdd \u2192 \u300c\u66f4\u6539\u8fde\u63a5\u300d\uff1b\u91cd\u8bd5\uff1a\u518d\u70b9\u4e00\u6b21\u5de6\u4fa7\u4f1a\u8bdd\u3002' + R)
-  term.writeln('')
-}
-
-// ---------------- terminals
-async function openHost(host) {
-  // 已连上的标签：切回去，绝不重复连接
-  const live = tabs.find((x) => x.hostId === host.id && !x.failed && !x.pending)
-  if (live) { selectTerm(live.id); return }
-  if (host.__connecting) {
-    statusEl.textContent = '正在连接 ' + (host.name || host.id) + ' …'
-    return
-  }
-
-  // 清掉上次异常退出留下的“半死”标签（pending 但已不在连接中）
-  for (const dead of tabs.filter((x) => x.hostId === host.id && x.pending)) {
-    removeTabSilently(dead)
-  }
-
-  host.__connecting = true
-  markBusy(host.id, true)
-
-  const ov = (settings.sessions && settings.sessions[host.id]) || {}
-
-  // 先开标签、立刻给反馈：不要等 histGet 再创建，否则点了会有“没反应”的空档
-  failSeq += 1
-  const tab = createTab('pending-' + failSeq, host, ov, null, null, true)
-  statusEl.textContent = '正在连接 ' + (host.name || host.id) + ' …'
-
-  try {
-    // 历史对话随后补上（失败也不影响连接）
-    let saved = null
-    try { saved = await window.st.histGet(host.id) } catch (e) {}
-    if (saved && (saved.convs || saved.log)) {
-      tab.agent = normalizeAgent(saved, tab.name)
-    }
-    const consumedKeys = await mergeLegacyConvs(tab)
-    pruneEmptyConvs(tab)   // 清掉历史遗留的空对话
-    tab.historyLoaded = true
-    persistTabAgent(tab)   // 先把合并结果写进主记录…
-    for (const k of consumedKeys) {
-      // …再回收旧 key，避免每次连接都把同样的旧记录重新合并出来
-      try { await window.st.histClear(k) } catch (e) {}
-    }
-    renderSub()
-
-    const { id } = await window.st.open(host.id, { encoding: ov.encoding || settings.encoding || 'utf-8' })
-    // 关键：标签 id 由 pending-N 换成真实 id，activeId 必须跟着换，
-    // 否则右侧助手拿 tabById(activeId) 找的是旧 id，会显示“先双击左侧会话”。
-    const wasActive = activeId === tab.id
-    tab.id = id
-    tab.pending = false
-    tab.term.write('\x1b[2J\x1b[3J\x1b[H')
-    markOnline(host.id, true)
-    statusEl.textContent = ''
-    if (wasActive) {
-      selectTerm(id)
-    } else {
-      renderTabRow()
-      updateHeads()
-      renderSub()
-    }
-    tab.term.focus()
-  } catch (e) {
-    const msg = (e && e.message) ? e.message : String(e)
-    tab.pending = false
-    tab.failed = true
-    writeFailBanner(tab.term, host, ov, msg)
-    markFailed(host.id, msg)
-    statusEl.textContent = '连接失败: ' + msg
-    tab.historyLoaded = true
-    renderTabRow()
-  } finally {
-    host.__connecting = false
-    markBusy(host.id, false)
-  }
-}
-
-// 静默移除一个标签（不通知主进程，用于清理失效的 pending 标签）
-function removeTabSilently(tab) {
-  const i = tabs.indexOf(tab)
-  if (i < 0) return
-  try { tab.term.dispose() } catch (e) {}
-  try { tab.wrap.remove() } catch (e) {}
-  tabs.splice(i, 1)
-  if (activeId === tab.id) activeId = tabs.length ? tabs[tabs.length - 1].id : null
-  renderTabRow()
-  updateHeads()
-  renderSub()
-}
-
-let failSeq = 0
-function createTab(id, host, ov, saved, failMsg, pendingMsg) {
-  const wrap = document.createElement('div')
-  wrap.className = 'termwrap'
-  termsEl.appendChild(wrap)
-  emptyEl.style.display = 'none'
-
-  ov = ov || {}
-  const fs0 = Number(ov.fontSize) || fontSize
-  const th0 = ov.terminal || termThemeName
-  const term = new TerminalCtor({
-    fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, monospace',
-    fontSize: fs0, theme: TERM_THEMES[th0] || TERM_THEMES.dark, cursorBlink: true, letterSpacing: 0.2,
-    // 行距必须走构造参数：用 CSS 改 .xterm-rows 的 line-height 会让字符网格
-    // 和光标位置错开（xterm 按自身行高算坐标），别在这上面取巧。
-    lineHeight: 1.3,
-    scrollback: 5000, allowProposedApi: true,
-  })
-  const fit = new FitCtor()
-  term.loadAddon(fit)
-  let search = null
-  if (SearchCtor) { try { search = new SearchCtor(); term.loadAddon(search) } catch (e) {} }
-  term.open(wrap)
-
-  const tab = {
-    id, name: host.name || host.id, hostId: host.id, term, fit, search, wrap,
-    fs: fs0, th: th0,
-    pending: !!pendingMsg,
-    failed: !!failMsg,
-    memKey: host.id,
-    historyLoaded: false,   // 历史加载完成后才允许保存
-    agent: normalizeAgent(saved, host.name || host.id),
-  }
-  tabs.push(tab)
-
-  term.onData((data) => {
-    if (tab.pending) return
-    window.st.input(tab.id, data)
-    if (mirrorEl.checked) for (const x of tabs) if (x.id !== tab.id && !x.pending) window.st.input(x.id, data)
-  })
-
-  if (pendingMsg) writePending(term, host)
-  if (failMsg) writeFailBanner(term, host, ov, failMsg)
-
-  selectTerm(id)
-  requestAnimationFrame(() => { try { fit.fit() } catch (e) {} })
-  renderTabRow()
-  updateHeads()
-  term.focus()
-  return tab
-}
-
-function selectTerm(id) {
-  activeId = id
-  for (const t of tabs) t.wrap.classList.toggle('active', t.id === id)
-  showView('term')
-  renderTabRow()
-  const t = tabById(id)
-  if (t) requestAnimationFrame(() => { try { t.fit.fit() } catch (e) {} t.term.focus() })
-}
-
-function renderTabRow() {
-  tabRow.replaceChildren()
-
-
-  for (const t of tabs) {
-    const d = document.createElement('div')
-    d.className = 'tab' + (view === 'term' && t.id === activeId ? ' active' : '')
-    d.draggable = true
-    d.dataset.tabId = t.id
-    const dot = document.createElement('span'); dot.className = 'dot'
-    if (t.failed) dot.style.background = 'var(--warn)'
-    const n = document.createElement('span'); n.textContent = t.name
-    const x = document.createElement('span'); x.className = 'x'; x.textContent = '\u00d7'
-    x.onclick = (ev) => { ev.stopPropagation(); closeTab(t.id) }
-    d.append(dot, n, x)
-    d.onclick = () => selectTerm(t.id)
-
-    // drag to reorder
-    d.ondragstart = (ev) => {
-      dragTabId = t.id
-      d.classList.add('dragging')
-      try {
-        ev.dataTransfer.effectAllowed = 'move'
-        ev.dataTransfer.setData('text/plain', t.id)
-      } catch (e) {}
-    }
-    d.ondragend = () => {
-      dragTabId = null
-      clearDropMarks()
-      d.classList.remove('dragging')
-    }
-    d.ondragover = (ev) => {
-      if (!dragTabId || dragTabId === t.id) return
-      ev.preventDefault()
-      try { ev.dataTransfer.dropEffect = 'move' } catch (e) {}
-      const r = d.getBoundingClientRect()
-      const after = ev.clientX > r.left + r.width / 2
-      clearDropMarks()
-      d.classList.add(after ? 'drop-after' : 'drop-before')
-    }
-    d.ondragleave = () => { d.classList.remove('drop-before', 'drop-after') }
-    d.ondrop = (ev) => {
-      ev.preventDefault()
-      const r = d.getBoundingClientRect()
-      const after = ev.clientX > r.left + r.width / 2
-      clearDropMarks()
-      if (dragTabId) moveTab(dragTabId, t.id, after)
-      dragTabId = null
-    }
-
-    tabRow.appendChild(d)
-  }
-}
-
-let dragTabId = null
-
-function clearDropMarks() {
-  tabRow.querySelectorAll('.tab').forEach((el2) => el2.classList.remove('drop-before', 'drop-after'))
-}
-
-function moveTab(fromId, toId, after) {
-  const from = tabs.findIndex((x) => x.id === fromId)
-  if (from < 0) return
-  if (fromId === toId) return
-  const [item] = tabs.splice(from, 1)
-  let idx = tabs.findIndex((x) => x.id === toId)
-  if (idx < 0) { tabs.splice(from, 0, item); return }
-  if (after) idx += 1
-  tabs.splice(idx, 0, item)
-  renderTabRow()
-}
-
-function closeTab(id) {
-  const i = tabs.findIndex((t) => t.id === id)
-  if (i < 0) return
-  window.st.close(id)
-  try { tabs[i].term.dispose() } catch (e) {}
-  tabs[i].wrap.remove()
-  tabs.splice(i, 1)
-  if (activeId === id) {
-    const next = tabs[tabs.length - 1]
-    activeId = next ? next.id : null
-    if (!next) {
-      emptyEl.style.display = 'flex'
-    }
-  }
-  renderTabRow()
-  updateHeads()
-}
-
-window.addEventListener('resize', () => {
-  const t = tabById(activeId)
-  if (t && view === 'term') { try { t.fit.fit() } catch (e) {} }
-})
-
-window.st.onData(({ id, data }) => {
-  const t = tabById(id)
-  if (t) t.term.write(data)
-})
-window.st.onClosed(({ id }) => closeTab(id))
-
 // ---------------- font + search
 function applyFont() {
   el('fontVal').textContent = String(fontSize)
@@ -629,14 +338,22 @@ el('searchInput').addEventListener('keydown', (ev) => {
 
 // ---------------- connection dialog
 let editingId = null
-async function openDialog(host) {
+async function openDialog(host, quick = false, target = '') {
   editingId = host ? host.id : null
-  el('dialog').querySelector('h3').textContent = host ? '\u7f16\u8f91\u8fde\u63a5' : '\u65b0\u5efa\u8fde\u63a5'
+  el('dialog').querySelector('h3').textContent = host ? '编辑连接' : quick ? '快速连接' : '新建连接'
   el('fName').value = host ? (host.name || '') : ''
   el('fHost').value = host ? (host.host || '') : ''
   el('fPort').value = host ? String(host.port || 22) : '22'
   el('fUser').value = host ? (host.user || 'ubuntu') : 'ubuntu'
   el('fKey').value = host ? (host.key || '') : ''
+  if (quick && target) {
+    const connection = /^(?:ssh\s+)?(?:-p\s+(\d+)\s+)?(?:(\S+)@)?(\[[\da-f:]+\]|[\w.\-]+)(?::(\d+))?$/i.exec(target)
+    if (connection) {
+      el('fHost').value = connection[3].replace(/^\[|\]$/g, '')
+      el('fUser').value = connection[2] || 'ubuntu'
+      el('fPort').value = connection[4] || connection[1] || '22'
+    }
+  }
   const groups = []
   for (const h of allHosts) if (h.group && !groups.includes(h.group)) groups.push(h.group)
   try { for (const g of (await window.st.groups()) || []) if (!groups.includes(g)) groups.push(g) } catch (e) {}
@@ -649,16 +366,17 @@ async function openDialog(host) {
     sel.appendChild(o)
   }
   sel.value = (host && host.group) || ''
-  const usePwd = !!(host && host.password)
+  const usePwd = !!host?.hasPassword
   document.querySelector('input[name=auth][value=pwd]').checked = usePwd
   document.querySelector('input[name=auth][value=key]').checked = !usePwd
-  el('fPwd').value = host ? (host.password || '') : ''
+  el('fPwd').value = ''
+  el('fPwd').placeholder = usePwd ? '留空保留已保存的密码' : ''
   resetDeleteBtn()
   el('fErr').textContent = ''
   el('btnDelete').style.display = host ? '' : 'none'
   syncAuth()
   el('overlay').classList.add('on')
-  setTimeout(() => el('fName').focus(), 30)
+  requestAnimationFrame(() => el(quick ? 'fHost' : 'fName').focus())
 }
 function syncAuth() {
   const pwd = document.querySelector('input[name=auth]:checked').value === 'pwd'
@@ -669,11 +387,11 @@ document.querySelectorAll('input[name=auth]').forEach((r) => { r.onchange = sync
 el('addHost').onclick = () => openDialog(null)
 el('btnClose').onclick = () => el('overlay').classList.remove('on')
 el('overlay').onclick = (ev) => { if (ev.target === el('overlay')) el('overlay').classList.remove('on') }
-el('btnTest').onclick = () => { statusEl.textContent = '\u6d4b\u8bd5\u8fde\u63a5\uff1a\u754c\u9762\u5c31\u7eea\uff0c\u5f85\u63a5\u7ebf' }
-el('btnSave').onclick = async () => {
+el('btnTest').onclick = () => el('btnSave').onclick(true)
+el('btnSave').onclick = async (connect) => {
   const pwd = document.querySelector('input[name=auth]:checked').value === 'pwd'
-  const wantName = el('fName').value.trim() || '\u672a\u547d\u540d'
   const wantHost = el('fHost').value.trim()
+  const wantName = el('fName').value.trim() || wantHost || '未命名'
   const wantPort = Number(el('fPort').value) || 22
   const wantUser = el('fUser').value.trim() || 'ubuntu'
 
@@ -696,6 +414,10 @@ el('btnSave').onclick = async () => {
     }
   }
   el('fErr').textContent = ''
+  if (!wantHost || !Number.isInteger(wantPort) || wantPort < 1 || wantPort > 65535) {
+    el('fErr').textContent = '请填写主机地址和有效的 SSH 端口。'
+    return
+  }
 
   let newId = editingId
   let finalName = wantName
@@ -715,11 +437,15 @@ el('btnSave').onclick = async () => {
     user: wantUser,
     group: el('fGroup').value || '',
   }
-  if (pwd) host.password = el('fPwd').value
+  if (pwd) { host.authType = 'password'; host.password = el('fPwd').value }
   else host.key = el('fKey').value.trim()
-  await window.st.saveHost(host)
-  el('overlay').classList.remove('on')
-  loadHosts()
+  try {
+    const saved = await window.st.saveHost(host)
+    if (!saved) throw new Error('请填写连接地址。')
+    el('overlay').classList.remove('on')
+    await loadHosts()
+    if (connect === true) openHost(saved, null, true)
+  } catch (error) { el('fErr').textContent = error.message }
 }
 
 // ---------------- markdown (no external libs: CSP is self-only)
@@ -851,10 +577,10 @@ function renderSub() {
   const box = el('subLog')
   box.replaceChildren()
   const t = tabById(activeId)
-  if (!t) {
+  if (!t || !t.historyLoaded) {
     const d = document.createElement('div')
     d.className = 'msg intro'
-    d.textContent = '\u5148\u53cc\u51fb\u5de6\u4fa7\u4f1a\u8bdd\uff0c\u52a9\u624b\u624d\u6709\u4f5c\u7528\u5bf9\u8c61\u3002'
+    d.textContent = t?.historyError || (t ? '正在载入对话…' : '连接 SSH 主机后即可提问。')
     box.appendChild(d)
     return
   }
@@ -866,6 +592,10 @@ function renderSub() {
     box.appendChild(d)
   }
   for (const m of conv.log) {
+    if (m.cls === 'task' && m.task) {
+      box.appendChild(renderInlineTask(m.task))
+      continue
+    }
     const d = document.createElement('div')
     d.className = 'msg ' + m.cls
     fillMsg(d, m.cls, m.text)
@@ -877,60 +607,131 @@ function renderSub() {
 async function askSub() {
   const input = el('subInput')
   const text = input.value.trim()
-  const t = tabById(activeId)
-  if (subBusy) return
-  if (!t) {
-    statusEl.textContent = '\u52a9\u624b\u9700\u8981\u4e00\u53f0\u673a\u5668\uff1a\u5148\u53cc\u51fb\u5de6\u4fa7\u4f1a\u8bdd\u8fde\u4e0a'
-    renderSub()
-    return
-  }
-  if (!text) { input.focus(); return }
-  if (!hasApi()) { statusEl.textContent = '\u5c1a\u672a\u914d\u7f6e Agent API\uff0c\u52a9\u624b\u4e0d\u53ef\u7528'; openGlobal('api'); return }
+  const pane = tabById(activeId)
+  if (!pane?.sessionId) { statusEl.textContent = '请先连接 SSH 主机。'; return }
+  if (!pane.historyLoaded) { statusEl.textContent = pane.historyError || '正在载入对话…'; return }
+  if (!text) return
+  if (!hasApi()) { openGlobal('api'); return }
 
-  const conv = activeConv(t)
-  subBusy = true
-  updateHeads()
+  const conv = activeConv(pane)
+  if (busyConversations.has(conv)) return
+  busyConversations.add(conv)
   input.value = ''
   conv.log.push({ cls: 'me', text })
-  const thinking = { cls: 'thinking', text: '\u601d\u8003\u4e2d\u2026' }
+  if (conv.title === '新对话') conv.title = convTitleFrom(conv.log, pane.name)
+  const thinking = { cls: 'thinking', text: '思考中…' }
   conv.log.push(thinking)
+  updateHeads()
   renderSub()
+  pane.term.focus()
 
   try {
-    const res = await window.st.ask({ text, targets: [t.id], history: conv.history, scope: 'session' })
-    const i = conv.log.indexOf(thinking)
-    if (i >= 0) conv.log.splice(i, 1)
-    if (res.error) conv.log.push({ cls: 'err', text: res.error })
-    else {
-      for (const a of res.actions || []) conv.log.push({ cls: 'act', text: '$ ' + a.command + (a.note ? '\n  ' + a.note : '') })
-      if (res.reply) {
-        conv.log.push({ cls: 'bot', text: res.reply })
-        conv.history.push({ role: 'user', content: text })
-        conv.history.push({ role: 'assistant', content: res.reply })
-      }
+    const result = await window.st.ask({
+      text, sessionId: pane.sessionId, conversationId: conv.id, history: conv.history,
+    })
+    if (result.error) conv.log.push({ cls: 'err', text: result.error })
+    if (result.reply) {
+      conv.log.push({ cls: 'bot', text: result.reply })
+      conv.history.push({ role: 'user', content: text }, { role: 'assistant', content: result.reply })
     }
-  } catch (e) {
-    const i = conv.log.indexOf(thinking)
-    if (i >= 0) conv.log.splice(i, 1)
-    conv.log.push({ cls: 'err', text: String(e && e.message ? e.message : e) })
+  } catch (error) {
+    conv.log.push({ cls: 'err', text: error.message })
   } finally {
-    if (conv.title === '\u65b0\u5bf9\u8bdd' && conv.log.some((m) => m.cls === 'me')) {
-      conv.title = convTitleFrom(conv.log, t.name)
-    }
+    const index = conv.log.indexOf(thinking)
+    if (index >= 0) conv.log.splice(index, 1)
     conv.updatedAt = Date.now()
-    subBusy = false
-    updateHeads()
-    persistTabAgent(t)
-    renderSub()
-    input.focus()
+    busyConversations.delete(conv)
+    void persistTabAgent(pane)
+    const current = tabById(activeId)
+    if (current?.hostId === pane.hostId) { updateHeads(); renderSub() }
   }
 }
 
 el('subSend').onclick = askSub
-el('subInput').addEventListener('keydown', (ev) => {
-  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); askSub() }
+el('subInput').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault()
+    askSub()
+  }
 })
-mirrorEl.onchange = () => { statusEl.textContent = mirrorEl.checked ? '\u955c\u50cf\u8f93\u5165\u5df2\u5f00\u542f' : '' }
+
+const taskLabels = {
+  waiting: '待确认', running: '执行中', succeeded: '已完成', failed: '失败',
+  cancelled: '已取消', timeout: '超时', unknown: '结果未知',
+}
+
+function renderInlineTask(task) {
+  const card = document.createElement('section')
+  card.className = 'inline-task'
+  card.dataset.status = task.status
+  const heading = document.createElement('div')
+  heading.className = 'inline-task-head'
+  const title = document.createElement('span')
+  title.textContent = task.note || 'Agent 命令'
+  const state = document.createElement('span')
+  state.dataset.status = task.status
+  state.textContent = taskLabels[task.status] || task.status
+  heading.append(title, state)
+  card.appendChild(heading)
+
+  const target = document.createElement('p')
+  target.className = 'inline-task-target'
+  target.textContent = task.target || ''
+  card.appendChild(target)
+  const command = document.createElement('pre')
+  command.textContent = '$ ' + task.command
+  card.appendChild(command)
+
+  for (const [label, output] of [['输出', task.stdout], ['错误输出', task.stderr], ['状态', task.error]]) {
+    if (!output) continue
+    const row = document.createElement('p')
+    row.className = 'inline-task-output'
+    row.textContent = label + ' · ' + output
+    card.appendChild(row)
+  }
+
+  if (task.status === 'waiting' || task.status === 'running') {
+    const actions = document.createElement('div')
+    actions.className = 'inline-task-actions'
+    if (task.status === 'waiting') {
+      const confirm = document.createElement('button')
+      confirm.className = 'workspace-button confirm-task'
+      confirm.textContent = '确认执行'
+      confirm.onclick = async () => {
+        confirm.disabled = true
+        try { await window.st.confirmTask(task.id) } catch (error) { statusEl.textContent = error.message }
+      }
+      actions.appendChild(confirm)
+    }
+    const cancel = document.createElement('button')
+    cancel.className = 'workspace-button'
+    cancel.textContent = '取消'
+    cancel.onclick = async () => {
+      try { await window.st.cancelTask(task.id) } catch (error) { statusEl.textContent = error.message }
+    }
+    actions.appendChild(cancel)
+    card.appendChild(actions)
+  }
+  return card
+}
+
+async function receiveTask(task) {
+  if (!task || task.removed) return
+  let pane = tabs.find((item) => item.sessionId === task.sessionId)
+  pane ||= tabs.find((item) => item.paneId === task.paneId)
+  pane ||= tabs.find((item) => item.hostId === task.hostId)
+  if (!pane) return
+  if (!pane.historyLoaded) await loadConversation(pane)
+  const conversation = pane.agent.convs.find((item) => item.id === task.conversationId)
+  if (!conversation) return
+  const existing = conversation.log.find((item) => item.cls === 'task' && item.task?.id === task.id)
+  if (existing) existing.task = task
+  else conversation.log.push({ cls: 'task', task })
+  conversation.updatedAt = Date.now()
+  void persistTabAgent(pane)
+  if (pane.id === activeId && activeConv(pane).id === task.conversationId) renderSub()
+}
+window.st.onTask((task) => { void receiveTask(task) })
 
 // ---------------- settings (CRT-style dialogs)
 let settings = { theme: 'dark', terminal: 'dark', encoding: 'utf-8', accent: '#5aa9ff', fontSize: 12.5, agent: {}, sessions: {} }
@@ -943,6 +744,7 @@ function applyTheme() {
     if (t._hasThOverride) continue
     t.th = termThemeName
     t.term.options.theme = TERM_THEMES[termThemeName] || TERM_THEMES.dark
+    t.wrap.style.setProperty('--terminal-background', t.term.options.theme.background)
   }
 }
 
@@ -956,8 +758,11 @@ function openGlobal(tab) {
   el('gEnc').value = settings.encoding || 'utf-8'
   const a = settings.agent || {}
   el('gBase').value = a.baseUrl || ''
-  el('gKey').value = a.apiKey || ''
+  el('gKey').value = ''
+  el('gKey').placeholder = a.configured ? '留空保留已保存的密钥' : 'API Key'
   el('gModel').value = a.model || ''
+  el('gFullAccess').checked = settings.agentFullAccess === true
+  el('gFullAccessState').textContent = settings.agentFullAccess === true ? '已开启 · 直接执行命令' : '关闭 · 执行前确认'
   el('gMsg').textContent = ''
   el('gMsg').style.color = ''
   setGlobalTab(tab || 'appear')
@@ -969,6 +774,9 @@ function setGlobalTab(name) {
   document.querySelectorAll('#gset .tp').forEach((t) => t.classList.toggle('active', t.id === 'tp-' + name))
 }
 document.querySelectorAll('#gset .ni').forEach((n) => { n.onclick = () => setGlobalTab(n.dataset.tab) })
+el('gFullAccess').onchange = () => {
+  el('gFullAccessState').textContent = el('gFullAccess').checked ? '已开启 · 直接执行命令' : '关闭 · 执行前确认'
+}
 el('gTheme').querySelectorAll('button').forEach((b) => {
   b.onclick = () => {
     settings.theme = b.dataset.v
@@ -1009,7 +817,8 @@ el('gSave').onclick = async () => {
     model: el('gModel').value.trim() || 'deepseek-flash',
   }
   settings.encoding = el('gEnc').value || 'utf-8'
-  try { await window.st.saveSettings(settings) } catch (e) {
+  settings.agentFullAccess = el('gFullAccess').checked
+  try { settings = await window.st.saveSettings(settings) } catch (e) {
     el('gMsg').style.color = 'var(--warn)'
     el('gMsg').textContent = '保存失败: ' + (e && e.message ? e.message : e)
     return
@@ -1026,30 +835,19 @@ document.querySelectorAll('.ovl').forEach((o) => {
 el('btnSettings').onclick = () => openGlobal('appear')
 
 // ---------------- panel visibility
-function setPanelVisible(v) {
-  el('panel').classList.toggle('hidden', !v)
-  if (v) {
-    // re-fit whatever terminal is showing
-    const t = tabById(activeId)
-    if (t && view === 'term') setTimeout(() => { try { t.fit.fit() } catch (e) {} }, 60)
-  }
+function setPanelVisible(visible) {
+  el('panel').classList.toggle('hidden', !visible)
+  if (visible && !activeId) el('hostSearch').focus()
 }
-function setRightVisible(v) {
-  el('right').classList.toggle('hidden', !v)
-  rightHiddenByUser = !v
-  document.body.classList.toggle('right-collapsed', !v)
-  el('btnSubToggle').classList.toggle('on', !!v)
-  if (v) {
-    const t = tabById(activeId)
-    if (t) setTimeout(() => { try { t.fit.fit() } catch (e) {} }, 60)
-  }
+function setRightVisible(visible) {
+  el('right').classList.toggle('hidden', !visible)
+  el('btnSubToggle').classList.toggle('on', visible)
+  if (visible && !el('filesPanel').hidden) setFilesVisible(false)
 }
-let rightHiddenByUser = false
 el('panelHide').onclick = () => setPanelVisible(false)
 
 el('subHide').onclick = () => setRightVisible(false)
 el('btnSubToggle').onclick = () => setRightVisible(el('right').classList.contains('hidden'))
-el('rightHandle').onclick = () => setRightVisible(true)
 document.addEventListener('keydown', (ev) => {
   if (ev.ctrlKey && ev.shiftKey && !ev.altKey && (ev.key === 'A' || ev.key === 'a')) {
     ev.preventDefault()
@@ -1089,17 +887,16 @@ function openSessionSettings(hostId) {
     settings.sessions[hid] = next
     window.st.saveSettings(settings).catch(() => {})
 
-    if (t) {
-      t._hasFsOverride = !!next.fontSize
-      t.fs = next.fontSize || settings.fontSize
-      t.term.options.fontSize = t.fs
-      t._hasThOverride = !!next.terminal
-      t.th = next.terminal || termThemeName
-      t.term.options.theme = TERM_THEMES[t.th] || TERM_THEMES.dark
-      try { t.fit.fit() } catch (e) {}
-    }
-    if (next.encoding) {
-      if (t && window.st.setEncoding) window.st.setEncoding(t.id, next.encoding)
+    for (const pane of tabs.filter((item) => item.hostId === hid)) {
+      pane._hasFsOverride = !!next.fontSize
+      pane.fs = next.fontSize || settings.fontSize
+      pane.term.options.fontSize = pane.fs
+      pane._hasThOverride = !!next.terminal
+      pane.th = next.terminal || termThemeName
+      pane.term.options.theme = TERM_THEMES[pane.th] || TERM_THEMES.dark
+      pane.wrap.style.setProperty('--terminal-background', pane.term.options.theme.background)
+      fitPane(pane)
+      if (pane.sessionId) window.st.setEncoding(pane.sessionId, next.encoding || settings.encoding || 'utf-8')
     }
     el('ssMsg').textContent = '已应用'
     setTimeout(() => { el('ssMsg').textContent = '' }, 1500)
@@ -1129,7 +926,7 @@ el('obGo').onclick = async () => {
   if (r.modelKnown === false) { el('obErr').textContent = '连接成功，但模型名可能不对。可用: ' + (r.models || []).join(', '); return }
   settings.onboarded = true
   settings.agent = cfg
-  try { await window.st.saveSettings(settings) } catch (e) {
+  try { settings = await window.st.saveSettings(settings) } catch (e) {
     el('obErr').textContent = '保存失败：' + (e && e.message ? e.message : e)
     return
   }
@@ -1174,6 +971,7 @@ async function cloneHost(host) {
   while (taken(cname)) { cname = (host.name || host.id) + ' \u526f\u672c (' + k + ')'; k++ }
   const copy = Object.assign({}, host, { id: base + '-' + n, name: cname })
   delete copy.disabled
+  if (host.hasPassword) { copy.authType = 'password'; copy.cloneFrom = host.id; delete copy.key }
   await window.st.saveHost(copy)
   loadHosts()
   statusEl.textContent = '\u5df2\u514b\u9686\u4e3a ' + copy.name
@@ -1187,6 +985,8 @@ el('ctxmenu').onclick = async (ev) => {
   const a = item.dataset.a
   const host = ctxHost
   if (a === 'conn') { hideCtx(); openDialog(host); return }
+  if (a === 'open') { hideCtx(); openHost(host, null, true); return }
+  if (a === 'favorite') { hideCtx(); toggleFavorite(host.id); return }
   if (a === 'settings') { hideCtx(); openSessionSettings(host.id); return }
   if (a === 'clone') { hideCtx(); await cloneHost(host); return }
   if (a === 'delete') {
@@ -1202,8 +1002,7 @@ el('ctxmenu').onclick = async (ev) => {
     delArmHost = null
     hideCtx()
     await window.st.deleteHost(host.id)
-    const openTab = tabs.find((x) => x.hostId === host.id)
-    if (openTab) closeTab(openTab.id)
+    closePanes(tabs.filter((x) => x.hostId === host.id))
     loadHosts()
     statusEl.textContent = '\u5df2\u5220\u9664\uff0c\u5176 agent \u8bb0\u5fc6\u4e00\u5e76\u6e05\u7406'
     setTimeout(() => { statusEl.textContent = '' }, 2600)
@@ -1213,7 +1012,7 @@ el('ctxmenu').onclick = async (ev) => {
 // ---------------- session memory picker
 async function openMemSel() {
   const cur = tabById(activeId)
-  if (!cur) { statusEl.textContent = '\u5148\u6253\u5f00\u4e00\u4e2a\u4f1a\u8bdd'; return }
+  if (!cur?.historyLoaded) { statusEl.textContent = '\u5148\u6253\u5f00\u4e00\u4e2a\u4f1a\u8bdd'; return }
   activeConv(cur)
   el('memMsg').textContent = ''
   const box = el('memList')
@@ -1273,7 +1072,9 @@ async function openMemSel() {
     btnDel.className = 'pill'
     btnDel.textContent = '\u5220\u9664'
     btnDel.onclick = () => {
-      const doDelete = () => {
+      const doDelete = async () => {
+        if (busyConversations.has(c)) { statusEl.textContent = '这段对话仍在获取回复。'; return }
+        try { await window.st.clearTasks(cur.hostId, c.id) } catch (error) { el('memMsg').textContent = error.message; return }
         cur.agent.convs = cur.agent.convs.filter((x) => x.id !== c.id)
         if (!cur.agent.convs.length) cur.agent.convs.push(newConvObj())
         if (!cur.agent.convs.some((x) => x.id === cur.agent.activeId)) {
@@ -1358,7 +1159,7 @@ function createNewConv(t) {
 }
 el('subNew').onclick = () => {
   const t = tabById(activeId)
-  if (!t) { statusEl.textContent = '先双击左侧会话连上机器，助手才有作用对象'; return }
+  if (!t?.historyLoaded) { statusEl.textContent = '请先连上主机并等待对话载入。'; return }
   const conv = activeConv(t)
   const msgs = (conv.log || []).filter((m) => m.cls === 'me')
   const empty = !msgs.length
@@ -1400,7 +1201,7 @@ el('btnDelete').onclick = async () => {
 
 // ---------------- boot
 async function boot() {
-  try { settings = Object.assign(settings, await window.st.settings()) } catch (e) {}
+  try { settings = Object.assign(settings, await window.st.settings()) } catch (e) { statusEl.textContent = e.message }
   settings.sessions = settings.sessions || {}
   fontSize = Number(settings.fontSize) || 12.5
   el('fontVal').textContent = String(fontSize)
@@ -1417,15 +1218,17 @@ async function boot() {
 
   if (!settings.onboarded) {
     el('obBase').value = (settings.agent && settings.agent.baseUrl) || 'https://api.deepseek.com/v1'
-    el('obKey').value = (settings.agent && settings.agent.apiKey) || ''
+    el('obKey').value = ''
     el('obModel').value = (settings.agent && settings.agent.model) || 'deepseek-flash'
     el('onboard').classList.add('on')
   }
 
 
+  setRightVisible(false)
+  setPanelVisible(false)
   showView('term')
   await loadHosts()
   updateHeads()
+  if (settings.onboarded) requestAnimationFrame(() => el('hostLibrary').querySelector('input')?.focus())
+  try { await Promise.all((await window.st.tasks()).map(receiveTask)) } catch (error) { statusEl.textContent = error.message }
 }
-
-boot()

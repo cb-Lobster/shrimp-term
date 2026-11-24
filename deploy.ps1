@@ -17,6 +17,8 @@ Get-Process ShrimpTerm -ErrorAction SilentlyContinue | Stop-Process -Force -Erro
 Start-Sleep -Seconds 2
 
 Write-Host '==> syncing sources' -ForegroundColor Cyan
+& npm --prefix $src run build:ui
+if ($LASTEXITCODE -ne 0) { throw 'renderer build failed' }
 New-Item -ItemType Directory -Force -Path (Join-Path $app 'renderer\assets'), (Join-Path $app 'assets') | Out-Null
 
 foreach ($f in 'package.json', 'main.js', 'preload.js') {
@@ -37,10 +39,12 @@ if (Test-Path $hSrc) {
 } else {
   Write-Host '    hosts.json (保留已存在的配置)'
 }
-foreach ($f in 'index.html', 'app.js') {
+foreach ($f in 'index.html', 'app.js', 'terminal.js', 'tools.js', 'workspace.css') {
   Copy-Item (Join-Path $src "renderer\$f") (Join-Path $app 'renderer') -Force
   Write-Host "    renderer\$f"
 }
+Copy-Item (Join-Path $src 'lib') $app -Recurse -Force
+Copy-Item (Join-Path $src 'renderer\generated') (Join-Path $app 'renderer') -Recurse -Force
 Copy-Item (Join-Path $src 'renderer\vendor\*') (Join-Path $app 'renderer\vendor') -Force
 Write-Host '    renderer\vendor\*'
 Copy-Item (Join-Path $src 'assets\*') (Join-Path $app 'assets') -Force

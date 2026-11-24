@@ -15,7 +15,23 @@ jobs:
           node-version: "20"
 
       - name: 安装依赖
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: 静态自检
         run: npm run check
+
+  ssh-vim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: 安装测试依赖
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          sudo apt-get update
+          sudo apt-get install -y openssh-server vim
+          sudo mkdir -p /run/sshd
+      - name: 验证 OpenSSH 与 Vim 通道隔离
+        run: sudo "$(command -v node)" --test tests/openssh.test.js

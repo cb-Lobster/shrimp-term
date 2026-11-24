@@ -3,6 +3,8 @@
 #
 #   npm run installer
 #
+param([string]$OutputDir = 'dist')
+
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
@@ -14,19 +16,12 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-
 Write-Host ''
 Write-Host "==> ShrimpTerm $ver 安装包" -ForegroundColor Cyan
 
-# 文件被占用会导致打包失败
-$running = Get-Process ShrimpTerm -ErrorAction SilentlyContinue
-if ($running) {
-  foreach ($p in $running) { Write-Host "    停止运行中的实例 pid $($p.Id)" }
-  $running | Stop-Process -Force
-  Start-Sleep -Milliseconds 1500
-}
-
 # --- 1. 免安装目录
 Write-Host '==> 1/3 构建应用目录' -ForegroundColor Cyan
-& npx electron-builder --win --dir
+& npm run pack -- "--config.directories.output=$OutputDir"
 if ($LASTEXITCODE -ne 0) { throw "构建失败（exit $LASTEXITCODE）" }
-$exe = 'dist\win-unpacked\ShrimpTerm.exe'
+$unpacked = Join-Path $OutputDir 'win-unpacked'
+$exe = Join-Path $unpacked 'ShrimpTerm.exe'
 if (-not (Test-Path $exe)) { throw "产物缺失：$exe" }
 
 # --- 2. 图标与版本（electron-builder 在无管理员权限的机器上写不了，用 rcedit 补）
@@ -49,17 +44,18 @@ if ($rcedit) {
 }
 
 # 写入构建信息，让界面能显示“跑的是哪一版”
-$commit = (& git rev-parse --short HEAD 2>$null)
+$commit = ''
+if (Test-Path (Join-Path $root '.git')) { $commit = (& git rev-parse --short HEAD) }
 $info = @{ version = $ver; commit = "$commit"; builtAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') } | ConvertTo-Json -Compress
-[IO.File]::WriteAllText((Join-Path $root 'dist\win-unpacked\resources\app\build-info.json'), $info, (New-Object Text.UTF8Encoding $false))
+[IO.File]::WriteAllText((Join-Path (Resolve-Path -LiteralPath $unpacked).Path 'resources\app\build-info.json'), $info, (New-Object Text.UTF8Encoding $false))
 
 # --- 3. 用已打包目录生成 NSIS 安装包（避免重新打包把图标覆盖掉）
 Write-Host '==> 3/3 生成 NSIS 安装包' -ForegroundColor Cyan
-& npx electron-builder --win nsis --prepackaged dist\win-unpacked
+& npx electron-builder --win nsis --prepackaged $unpacked "--config.directories.output=$OutputDir"
 if ($LASTEXITCODE -ne 0) { throw "安装包生成失败（exit $LASTEXITCODE）" }
 
 # --- 报告
-$setup = Get-ChildItem 'dist' -Filter '*Setup*.exe' -ErrorAction SilentlyContinue |
+$setup = Get-ChildItem $OutputDir -Filter "*Setup*$ver.exe" -ErrorAction SilentlyContinue |
   Sort-Object LastWriteTime -Descending | Select-Object -First 1
 Write-Host ''
 if ($setup) {

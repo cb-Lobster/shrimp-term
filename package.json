@@ -1,20 +1,27 @@
 {
   "name": "shrimp-term",
   "productName": "ShrimpTerm",
-  "version": "0.3.0",
-  "description": "ShrimpTerm: 极简 SSH 终端，带一个只能在你看着的终端里打字的运维助手",
+  "version": "0.6.0",
+  "description": "ShrimpTerm: SSH 工作区，支持分屏和独立的后台助手",
   "author": "cb-Lobster",
   "license": "MIT",
   "main": "main.js",
   "private": true,
   "scripts": {
+    "build:ui": "vite build",
+    "typecheck": "tsc --noEmit",
+    "prestart": "npm run build:ui",
     "start": "electron .",
+    "prepack": "npm run build:ui",
     "pack": "electron-builder --win --dir",
+    "predist": "npm run build:ui",
     "dist": "electron-builder --win",
     "ship": "powershell -ExecutionPolicy Bypass -File scripts/ship.ps1",
-    "test": "node tests/sentinel.test.js",
-    "check": "node tests/preflight.js",
+    "test": "node --test tests/background.test.js tests/files.test.js",
+    "check": "node tests/preflight.js && npm run typecheck && npm test",
+    "presmoke": "npm run build:ui",
     "smoke": "node tests/smoke.mjs",
+    "test:ssh": "node --test tests/openssh.test.js",
     "installer": "powershell -ExecutionPolicy Bypass -File scripts/installer.ps1"
   },
   "dependencies": {
@@ -25,15 +32,23 @@
     "ssh2": "^1.17.0"
   },
   "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
-    "playwright-core": "^1.64.1"
+    "lucide-react": "^1.78.0",
+    "playwright-core": "^1.64.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.6"
   },
   "build": {
     "appId": "dev.cblobster.shrimpterm",
     "productName": "ShrimpTerm",
     "copyright": "MIT (c) cb-Lobster",
     "asar": false,
+    "npmRebuild": false,
     "directories": {
       "output": "dist",
       "buildResources": "assets"
@@ -41,8 +56,10 @@
     "files": [
       "main.js",
       "preload.js",
+      "lib/**/*",
       "package.json",
       "renderer/**/*",
+      "!renderer/ui/**/*",
       "assets/**/*",
       "hosts.example.json"
     ],

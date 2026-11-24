@@ -305,18 +305,6 @@
   /* ===== right: per-session sub agent ===== */
   #right { width: 320px; flex: 0 0 320px; background: var(--surface); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   #right.hidden { display: none; }
-  /* 右栏收起后贴在窗口右缘的把手：保证任何时候都能把它拉回来 */
-  #rightHandle {
-    display: none; position: fixed; right: 0; top: 50%; transform: translateY(-50%);
-    z-index: 60; width: 26px; padding: 10px 0;
-    background: var(--surface2); border: 1px solid var(--line2); border-right: 0;
-    border-radius: 8px 0 0 8px; cursor: pointer; color: var(--accent);
-    flex-direction: column; align-items: center; gap: 5px; font-size: 12px; line-height: 1;
-    box-shadow: -2px 0 6px rgba(0, 0, 0, .12);
-  }
-  #rightHandle:hover { background: var(--surface3); }
-  #rightHandle .v { writing-mode: vertical-rl; letter-spacing: 2px; color: var(--dim); }
-  body.right-collapsed #rightHandle { display: flex; }
   #subHead { height: 32px; flex: 0 0 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; }
   #subHead .sub { font-weight: 400; color: var(--dim2); font-size: 11px; margin-left: auto; }
   #subHead .subbtn {
@@ -415,6 +403,46 @@
   .dlgfoot button:hover { background: var(--surface3); }
   .dlgfoot button.primary { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
 
+  /* Unified workspace treatment for settings and the session assistant. */
+  .dlg.wide { width: min(760px, calc(100vw - 48px)); height: min(570px, calc(100vh - 48px)); border-radius: 10px; }
+  .dlghead { min-height: 52px; padding: 0 20px; font-size: 14px; background: var(--surface2); }
+  .dlgnav { width: 188px; flex-basis: 188px; padding: 14px 10px; }
+  .ni { padding: 10px 12px; border-radius: 6px; font-size: 13px; }
+  .dlgmain { padding: 24px; }
+  .tp { gap: 18px; }
+  .setrow { min-height: 44px; padding: 8px 0; font-size: 13px; }
+  .setrow > span { width: 90px; flex-basis: 90px; font-size: 12px; }
+  .setcol { padding: 0; gap: 8px; }
+  .dlgfoot { min-height: 62px; padding: 12px 20px; }
+  .permission-card { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  .permission-card h3 { margin: 0 0 7px; font-size: 14px; }
+  .permission-card p { margin: 0; max-width: 490px; color: var(--dim); font-size: 12px; line-height: 1.7; }
+  .permission-toggle { display: flex; align-items: center; gap: 11px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .permission-toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .permission-toggle strong { font-size: 13px; font-weight: 550; }
+  .permission-state { margin-left: auto; color: var(--dim); font-size: 11px; }
+
+  #right { width: 376px; flex-basis: 376px; background: var(--bg); }
+  #subHead { height: 48px; flex-basis: 48px; padding: 0 16px; gap: 10px; font-size: 13px; }
+  #subHead .sub { margin-left: auto; }
+  #subHead .subbtn { height: 27px; padding: 0 10px; font-size: 11px; }
+  #subLog { padding: 18px 16px; gap: 14px; }
+  .msg { font-size: 13px; line-height: 1.7; }
+  .msg.intro { padding: 10px 2px; font-size: 12px; }
+  .msg.me { max-width: 92%; padding: 9px 13px; border-radius: 9px 9px 3px 9px; }
+  .msg.bot { max-width: 100%; padding: 12px 14px; border-radius: 8px; }
+  .msg.act { max-width: 100%; padding: 10px 12px; border-radius: 6px; font-size: 11.5px; }
+  #subComposer { padding: 12px 14px 14px; background: var(--surface); }
+  #subInput { min-height: 76px; padding: 11px 12px; border-radius: 7px; font-size: 13px; }
+  #subRow { margin-top: 9px; }
+  #subSend { padding: 7px 16px; border-radius: 6px; font-size: 12px; }
+  @media (max-width: 760px) {
+    .dlg.wide { width: calc(100vw - 24px); height: min(600px, calc(100vh - 24px)); }
+    .dlgnav { width: 138px; flex-basis: 138px; }
+    .dlgmain { padding: 16px; }
+    #right { width: min(376px, 48vw); flex-basis: min(376px, 48vw); }
+  }
+
   /* agent warning strip */
 
   /* onboarding skip */
@@ -468,12 +496,23 @@
   #dialog .foot button.danger:hover { background: #fdecea; }
   #toolbar .tb.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 </style>
+<link rel="stylesheet" href="workspace.css">
 </head>
 <body>
   <div id="app">
     <div id="titlebar">
       <div id="brand"><img src="assets/shrimp-256.png" alt=""><span>ShrimpTerm</span></div>
+      <div class="window-tabs">
+        <button class="nav-tab" id="libraryHome" title="主机库" aria-label="主机库"><span aria-hidden="true">▦</span> 主机库</button>
+        <button class="nav-tab" id="filesTop" title="远端文件"><span aria-hidden="true">▱</span> SFTP</button>
+        <div id="tabRow" aria-label="终端标签"></div>
+        <button class="tool-icon" id="openLauncher" aria-label="快速切换（Ctrl+K）" title="快速切换（Ctrl+K）">＋</button>
+      </div>
       <span class="spacer"></span>
+      <div class="window-tools">
+        <button class="tool-icon" id="toggleHosts" aria-label="切换主机侧栏" title="主机侧栏">☰</button>
+        <button class="tool-icon" id="btnSettings" aria-label="设置" title="设置">⚙</button>
+      </div>
       <div id="winctl">
         <button id="wMin" title="最小化">&#8211;</button>
         <button id="wMax" title="最大化">&#9633;</button>
@@ -482,45 +521,52 @@
     </div>
 
     <div id="body">
-      <div id="rail">
-        <div class="railbtn active" data-panel="hosts" title="会话">&#9733;</div>
-        <div class="gap"></div>
-        <div class="railtxt" id="btnSettings" title="全局设置"><span>&#9881;</span><span>设置</span></div>
-      </div>
+      <nav id="vaultNav" aria-label="主机库导航">
+        <button class="vault-link active" data-library="all"><span aria-hidden="true">▦</span> 主机</button>
+        <button class="vault-link" data-library="favorite"><span aria-hidden="true">☆</span> 收藏</button>
+        <button class="vault-link" data-library="recent"><span aria-hidden="true">◷</span> 最近连接</button>
+        <button class="vault-link" id="snippetsHome"><span aria-hidden="true">▤</span> 常用命令</button>
+      </nav>
 
       <aside id="panel">
-        <div id="panelHead"><span id="panelTitle">会话</span><button id="panelHide" title="隐藏左侧栏">&#171;</button></div>
+        <div id="panelHead"><span id="panelTitle">主机</span><button id="panelHide" title="隐藏左侧栏">&#171;</button></div>
         <div class="pane active" id="pane-hosts">
           <div class="sect">
-            <span>会话</span>
+            <span>连接分组</span>
             <span class="spacer"></span>
             <button id="addGroup" title="新建文件夹">&#128193;</button>
             <button id="addHost" title="新建连接">+</button>
           </div>
           <div class="newGroupRow" id="newGroupRow"><input id="newGroupInput" placeholder="文件夹名称，回车确认"></div>
+          <input id="hostSearch" type="search" placeholder="搜索主机" aria-label="在侧栏搜索主机">
           <div id="hostList"></div>
         </div>
       </aside>
 
       <main id="center">
-        <div id="tabRow"></div>
-
         <div id="toolbar">
-          <label><input type="checkbox" id="mirror"> 镜像输入</label>
-          <span class="sep"></span>
-          <span class="chip"><button id="fontDown">A-</button><span class="val" id="fontVal">12.5</span><button id="fontUp">A+</button></span>
-          <span class="sep"></span>
-          <span id="searchWrap">&#9906;<input id="searchInput" placeholder="在终端中搜索"></span>
-          <button class="tb" id="btnSubToggle" title="显示/隐藏右侧助手栏（Ctrl+Shift+A）"></button>
-          <button class="tb" id="btnSession" title="本会话设置：字号、配色、编码"></button>
-          <span id="status"></span>
+          <span id="terminalTarget"></span>
+          <span class="spacer"></span>
+          <button class="workspace-button text-tool" id="splitMenu" title="左右或上下分屏"><span aria-hidden="true">◫</span> 分屏</button>
+          <button class="tool-icon" id="searchToggle" aria-label="终端搜索（Ctrl+Shift+F）" title="终端搜索（Ctrl+Shift+F）">⌕</button>
+          <button class="tool-icon" id="btnSubToggle" aria-label="切换助手" title="助手（Ctrl+Shift+A）">✧</button>
+          <button class="tool-icon" id="btnSession" aria-label="会话设置" title="会话设置">⚙</button>
+          <button class="tool-icon" id="moreTools" aria-label="终端更多工具" aria-expanded="false" title="更多工具">⋯</button>
+          <div id="terminalTools" hidden>
+            <label><input type="checkbox" id="mirror"> 镜像输入</label>
+            <button class="workspace-button" id="mirrorConfig">选择目标 <span id="mirrorCount"></span></button>
+            <span class="chip"><button id="fontDown" title="减小字号">A−</button><span class="val" id="fontVal">12.5</span><button id="fontUp" title="增大字号">A+</button></span>
+          </div>
         </div>
 
-        <div id="terms"><div id="empty">双击左侧会话开始</div></div>
+        <div id="terms">
+          <div id="empty"><div id="hostLibrary"></div></div>
+          <div id="searchWrap" hidden><input id="searchInput" aria-label="在终端中搜索" placeholder="搜索终端输出"><button class="tool-icon" id="searchClose" aria-label="关闭终端搜索">×</button></div>
+        </div>
 
       </main>
 
-      <aside id="right">
+      <aside id="right" class="hidden">
         <div id="subHead">本会话<span id="subTarget" class="sub">未连接</span>
           <button id="subNew" class="subbtn" title="清空当前会话的对话与上下文，重新开始">新会话</button>
           <button id="subHist" class="subbtn" title="查看本会话的历史对话记忆">历史会话</button>
@@ -528,13 +574,58 @@
         <div id="subLog"></div>
         <div id="subComposer">
           <textarea id="subInput" placeholder="只针对当前会话提问…"></textarea>
-          <div id="subRow"><span style="color:var(--dim2);font-size:11px">记忆独立</span><button id="subSend">发送</button></div>
+          <div id="subRow"><span style="color:var(--dim2);font-size:11px">后台 SSH</span><button id="subSend">发送</button></div>
         </div>
       </aside>
 
-      <div id="rightHandle" title="展开本会话助手（Ctrl+Shift+A）"><span>&#10022;</span><span class="v">助手</span></div>
+      <aside id="filesPanel" hidden></aside>
+
     </div>
+    <footer id="workspaceStatus">
+      <span id="connectionState">未连接</span>
+      <span id="status" role="status"></span>
+    </footer>
   </div>
+
+  <dialog id="launcherDialog" class="workspace-dialog palette-dialog">
+    <div class="dock-header"><strong>快速切换</strong><button class="tool-icon" id="launcherClose" aria-label="关闭快速切换">×</button></div>
+    <input id="launcherQuery" type="search" aria-label="搜索主机或操作" placeholder="搜索主机、标签或操作">
+    <div id="launcherItems"></div>
+  </dialog>
+  <dialog id="snippetsDialog" class="workspace-dialog palette-dialog">
+    <div class="dock-header"><strong>常用命令</strong><button class="tool-icon" id="snippetsClose" aria-label="关闭常用命令">×</button></div>
+    <div id="snippetItems"></div>
+    <form id="snippetForm">
+      <input id="snippetName" required maxlength="80" aria-label="命令名称" placeholder="名称">
+      <textarea id="snippetCommand" required maxlength="8000" aria-label="命令内容" placeholder="命令内容" rows="4" spellcheck="false"></textarea>
+      <div class="dialog-buttons"><button class="workspace-button" id="snippetReset" type="button" hidden>取消编辑</button><button class="workspace-button primary-action" type="submit">保存命令</button></div>
+      <p id="snippetMessage" role="status"></p>
+    </form>
+  </dialog>
+
+  <dialog id="splitDialog" class="workspace-dialog">
+    <form method="dialog">
+      <h2>分屏</h2>
+      <label for="splitHost">要连接的主机</label>
+      <select id="splitHost"></select>
+      <div class="dialog-buttons">
+        <button class="workspace-button" id="split-horizontal">左右分屏</button>
+        <button class="workspace-button" id="split-vertical">上下分屏</button>
+        <button class="workspace-button">取消</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="mirrorDialog" class="workspace-dialog">
+    <form method="dialog">
+      <h2>镜像输入目标</h2>
+      <div id="mirrorChoices"></div>
+      <div class="dialog-buttons">
+        <button class="workspace-button" id="mirrorApply">应用</button>
+        <button class="workspace-button">取消</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="overlay">
     <div id="dialog">
@@ -561,7 +652,7 @@
       <div class="foot">
         <button class="ghost danger" id="btnDelete" style="display:none">删除连接</button>
         <button class="ghost" id="btnClose">取消</button>
-        <button id="btnTest">测试连接</button>
+        <button id="btnTest">保存并连接</button>
         <button class="primary" id="btnSave">保存</button>
       </div>
     </div>
@@ -576,6 +667,7 @@
           <div class="ni active" data-tab="appear">外观</div>
           <div class="ni" data-tab="term">终端默认</div>
           <div class="ni" data-tab="api">Agent API</div>
+          <div class="ni" data-tab="permissions">Agent 权限</div>
         </div>
         <div class="dlgmain">
           <div class="tp active" id="tp-appear">
@@ -596,6 +688,17 @@
             <div class="setcol"><span>API Key</span><input type="password" id="gKey" placeholder="sk-..."></div>
             <div class="setcol"><span>模型</span><input type="text" id="gModel" placeholder="deepseek-flash"></div>
           </div>
+          <div class="tp" id="tp-permissions">
+            <section class="permission-card">
+              <h3>SSH 命令权限</h3>
+              <p>控制 Agent 提出的命令是否需要你逐项确认。完全访问开启时，命令将在当前会话连接的远端主机上直接执行，状态和输出会显示在本次 AI 对话中。</p>
+              <label class="permission-toggle">
+                <input type="checkbox" id="gFullAccess">
+                <strong>完全访问</strong>
+                <span class="permission-state" id="gFullAccessState">关闭 · 执行前确认</span>
+              </label>
+            </section>
+          </div>
         </div>
       </div>
       <div class="dlgfoot">
@@ -610,6 +713,8 @@
   <!-- host context menu -->
   <div id="ctxmenu">
     <div class="ctxitem" data-a="conn">更改连接</div>
+    <div class="ctxitem" data-a="open">在新标签打开</div>
+    <div class="ctxitem" data-a="favorite">切换收藏</div>
     <div class="ctxitem" data-a="settings">会话设置</div>
     <div class="ctxsep"></div>
     <div class="ctxitem" data-a="clone">克隆会话</div>
@@ -671,6 +776,9 @@
   <script src="vendor/xterm.js"></script>
   <script src="vendor/addon-fit.js"></script>
   <script src="vendor/addon-search.js"></script>
+  <script src="generated/workspace.js"></script>
   <script src="app.js"></script>
+  <script src="tools.js"></script>
+  <script src="terminal.js"></script>
 </body>
 </html>
