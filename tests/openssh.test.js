@@ -79,13 +79,12 @@ test('OpenSSH runs diagnostics while Vim keeps its unsaved buffer, mode and care
   const snapshots = file('vim-state')
   fs.writeFileSync(file('vimrc'), [
     'autocmd VimEnter * call writefile(["ready"], "' + file('vim-ready') + '")',
-    'set t_F5=\x1b[15~',
-    'inoremap <F5> <Cmd>call writefile([json_encode([mode(1), getcurpos()[1:2], getline(1, "$")])], "' + snapshots + '", "a")<CR>',
+    'inoremap <C-G> <Cmd>call writefile([json_encode([mode(1), getcurpos()[1:2], getline(1, "$")])], "' + snapshots + '", "a")<CR>',
   ].join('\n') + '\n')
   sessions.input(sessionA, 'vim -Nu ' + file('vimrc') + ' -n -i NONE ' + file('example.txt') + '\r')
   await waitFor(() => fs.existsSync(file('vim-ready')))
   // Give Vim real keyboard input and snapshot the editing state without leaving Insert mode.
-  sessions.input(sessionA, 'iworking draft\x1b[15~')
+  sessions.input(sessionA, 'iworking draft\x07')
   const readStates = () => fs.existsSync(snapshots)
     ? fs.readFileSync(snapshots, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))
     : []
@@ -100,7 +99,7 @@ test('OpenSSH runs diagnostics while Vim keeps its unsaved buffer, mode and care
   assert.equal(sessions.input(sessionB, 'echo separate-pane\r'), true)
   assert.equal((await running).status, 'succeeded')
   assert.match(output, /Filesystem/)
-  sessions.input(sessionA, '\x1b[15~')
+  sessions.input(sessionA, '\x07')
   const after = await waitFor(() => readStates()[1])
   assert.deepEqual(after, before)
   assert.equal(fs.existsSync(file('example.txt')), false)
