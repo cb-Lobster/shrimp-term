@@ -678,17 +678,25 @@ function renderInlineTask(task) {
   target.className = 'inline-task-target'
   target.textContent = task.target || ''
   card.appendChild(target)
+
+  const details = document.createElement('details')
+  details.className = 'inline-task-details'
+  details.open = task.status === 'waiting'
+  const summary = document.createElement('summary')
+  summary.textContent = '命令与执行结果'
+  details.appendChild(summary)
   const command = document.createElement('pre')
   command.textContent = '$ ' + task.command
-  card.appendChild(command)
+  details.appendChild(command)
 
   for (const [label, output] of [['输出', task.stdout], ['错误输出', task.stderr], ['状态', task.error]]) {
     if (!output) continue
     const row = document.createElement('p')
     row.className = 'inline-task-output'
     row.textContent = label + ' · ' + output
-    card.appendChild(row)
+    details.appendChild(row)
   }
+  card.appendChild(details)
 
   if (task.status === 'waiting' || task.status === 'running') {
     const actions = document.createElement('div')

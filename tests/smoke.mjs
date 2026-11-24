@@ -153,6 +153,8 @@ async function main() {
     await page.waitForTimeout(200)
     await page.locator('#btnSubToggle').click()
     await waitFor(async () => page.locator('#subLog .inline-task[data-status="succeeded"]').count(), '对话内命令已完成')
+    const answer = await page.locator('#subLog .msg.bot').last().textContent()
+    if (!answer?.includes('根分区检查已完成')) throw new Error('助手没有用自然语言总结命令结果: ' + answer)
     if ((await page.locator('.xterm-rows').textContent()).includes('df -h')) throw new Error('后台命令出现在前台终端')
     if (!(await page.locator('#subLog .inline-task').textContent()).includes('smoke-output-ok')) throw new Error('缺少对话内命令输出')
     if (await page.locator('#taskButton, #taskPanel').count()) throw new Error('独立后台任务入口仍存在')

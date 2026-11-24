@@ -157,6 +157,9 @@ button:focus-visible, input:focus-visible, summary:focus-visible, textarea:focus
 .inline-task-head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .inline-task-head [data-status] { margin-left: auto; color: var(--workspace-muted); font-weight: 400; }
 .inline-task-target { margin: 5px 0; color: var(--workspace-muted); font-size: 11px; }
+.inline-task-details { margin-top: 8px; }
+.inline-task-details summary { padding: 7px 9px; border: 1px solid var(--workspace-edge); border-radius: 5px; color: var(--workspace-muted); cursor: pointer; user-select: none; }
+.inline-task-details[open] summary { margin-bottom: 7px; }
 .inline-task pre { margin: 8px 0; padding: 9px; overflow: auto; border-radius: 5px; background: var(--workspace-canvas); color: var(--workspace-ink); font: 11px/1.55 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .inline-task-output { margin: 6px 0 0; }
 .inline-task-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 10px; }
